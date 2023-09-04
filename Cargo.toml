@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "bizarre_engine",
+    "sandbox",
+]
