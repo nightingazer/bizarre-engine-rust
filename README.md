@@ -1,5 +1,4 @@
 # Bizarre Engine
---
 
 My first attempt to make a game engine in Rust. It's will be definitely a very
 strange, pretty possibly obnoxious in some aspects, and overall bizarre piece of
