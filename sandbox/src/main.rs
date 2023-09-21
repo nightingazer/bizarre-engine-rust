@@ -1,21 +1,10 @@
+use bizarre_engine::core::logger::logger;
 use bizarre_engine::core::logger::{
-    terminal_escape_code::{bg_color, BOLD, RED, RESET},
-    terminal_macros::*,
+    log_level::LogLevel, LogTarget::Stdout, LoggerBuilder, APP_LOGGER,
 };
+use bizarre_engine::{debug, log_to_global};
 
 fn main() {
-    {
-        let esc_sequence = escape_sequence!(BOLD, RED);
-        println!("{}Hello world!", esc_sequence);
-    }
-    {
-        let esc_sequence = escape_sequence!(RESET, RED);
-        println!("{}Hello world!", esc_sequence);
-    }
-    {
-        let esc_sequence = escape_sequence!(RESET, bg_color(RED));
-        println!("{}Hello world!", esc_sequence);
-    }
-    let esc_sequence = escape_sequence!(RESET);
-    println!("{}Hello world!", esc_sequence);
+    logger::init_app_logger(None);
+    debug!("Hello, world!");
 }

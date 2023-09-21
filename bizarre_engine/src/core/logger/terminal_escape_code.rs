@@ -1,5 +1,9 @@
 use std::fmt::Display;
 
+use crate::escape_sequence;
+
+use super::log_level::LogLevel;
+
 pub type TerminalEscapeCode = u8;
 
 pub const RESET: TerminalEscapeCode = 0;
@@ -38,12 +42,37 @@ pub struct TerminalEscapeSequence(pub Vec<TerminalEscapeCode>);
 
 impl Display for TerminalEscapeSequence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let code: String = self.into();
+        write!(f, "{}", code)
+    }
+}
+
+impl From<LogLevel> for TerminalEscapeSequence {
+    fn from(value: LogLevel) -> Self {
+        match value {
+            LogLevel::Debug => escape_sequence!(BRIGHT_BLACK),
+            LogLevel::Info => escape_sequence!(GREEN),
+            LogLevel::Warn => escape_sequence!(YELLOW),
+            LogLevel::Error => escape_sequence!(RED),
+            LogLevel::Critical => escape_sequence!(bg_color(RED), WHITE, BOLD),
+        }
+    }
+}
+
+impl Into<String> for &TerminalEscapeSequence {
+    fn into(self) -> String {
         let codes = self
             .0
             .iter()
             .map(|c| c.to_string())
             .collect::<Vec<String>>()
             .join(";");
-        write!(f, "\x1b[{}m", codes)
+        format!("\x1b[{}m", codes)
+    }
+}
+
+impl From<TerminalEscapeCode> for TerminalEscapeSequence {
+    fn from(value: TerminalEscapeCode) -> Self {
+        escape_sequence!(value)
     }
 }
