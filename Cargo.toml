@@ -1,6 +1,15 @@
-[workspace]
+[package]
+name = "bizarre_engine"
+version = "0.1.0"
+edition = "2021"
 
+[workspace]
 members = [
-    "bizarre_engine",
-    "sandbox",
+    "crates/*",
+    "sandbox"
 ]
+
+default-members = ["sandbox"]
+
+[dependencies]
+"bizarre_impl" = {path = "crates/bizarre_impl"}
