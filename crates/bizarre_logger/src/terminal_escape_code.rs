@@ -47,10 +47,10 @@ impl Display for TerminalEscapeSequence {
     }
 }
 
-impl From<LogLevel> for TerminalEscapeSequence {
-    fn from(value: LogLevel) -> Self {
+impl From<&LogLevel> for TerminalEscapeSequence {
+    fn from(value: &LogLevel) -> Self {
         match value {
-            LogLevel::Debug => escape_sequence!(BRIGHT_BLACK),
+            LogLevel::Debug => escape_sequence!(WHITE),
             LogLevel::Info => escape_sequence!(GREEN),
             LogLevel::Warn => escape_sequence!(YELLOW),
             LogLevel::Error => escape_sequence!(RED),
