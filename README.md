@@ -15,7 +15,7 @@ implementation perspective. Rest assured, we are working on it.
 
 ## Rough road map 
 
-- [ ] Logging
+- [x] Logging
 - [ ] Debug Assertions with clean shutdown
 - [ ] Application System model *(layers?)*
 - [ ] Window creation
