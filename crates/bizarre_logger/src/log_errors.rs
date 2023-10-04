@@ -1,22 +1,13 @@
-use std::fmt::Display;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum LogError {
-    AlreadyInitialized,
-    CouldNotOpenFile { path: String, reason: String },
-    CouldNotPrintToFile { path: String, reason: String },
-}
+    #[error("The logger {0} is already initialized")]
+    AlreadyInitialized(String),
 
-impl Display for LogError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::AlreadyInitialized => write!(f, "already initialized"),
-            Self::CouldNotOpenFile { path, reason } => {
-                write!(f, "could not open file '{path}': {reason}")
-            }
-            Self::CouldNotPrintToFile { path, reason } => {
-                write!(f, "could not write to file '{path}': {reason}")
-            }
-        }
-    }
+    #[error("could not open the file '{path}': {source}")]
+    CouldNotOpenFile { path: String, source: anyhow::Error },
+
+    #[error("could not print to file '{path}': {source}")]
+    CouldNotPrintToFile { path: String, source: anyhow::Error },
 }

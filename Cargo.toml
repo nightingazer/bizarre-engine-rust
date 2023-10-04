@@ -3,6 +3,10 @@ name = "bizarre_engine"
 version = "0.1.0"
 edition = "2021"
 
+
+[dependencies]
+"bizarre_impl" = {path = "crates/bizarre_impl"}
+
 [workspace]
 members = [
     "crates/*",
@@ -11,5 +15,6 @@ members = [
 
 default-members = ["sandbox"]
 
-[dependencies]
-"bizarre_impl" = {path = "crates/bizarre_impl"}
+[workspace.dependencies]
+anyhow = "1.0.75"
+thiserror = "1.0.49"

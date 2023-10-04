@@ -14,7 +14,7 @@ static mut CORE_LOGGER: Option<Arc<Mutex<Logger>>> = None;
 pub fn app_logger_init(logger: Option<Logger>) -> Result<(), LogError> {
     unsafe {
         if APP_LOGGER_INIT.is_completed() {
-            return Err(LogError::AlreadyInitialized);
+            return Err(LogError::AlreadyInitialized("APP_LOGGER".into()));
         }
         APP_LOGGER_INIT.call_once(|| match logger {
             Some(logger) => APP_LOGGER = Some(Arc::new(Mutex::new(logger))),
@@ -44,7 +44,7 @@ pub unsafe fn app_logger() -> Arc<Mutex<Logger>> {
 pub fn core_logger_init(logger: Option<Logger>) -> Result<(), LogError> {
     unsafe {
         if CORE_LOGGER_INIT.is_completed() {
-            return Err(LogError::AlreadyInitialized);
+            return Err(LogError::AlreadyInitialized("CORE_LOGGER".into()));
         }
         CORE_LOGGER_INIT.call_once(|| match logger {
             Some(logger) => CORE_LOGGER = Some(Arc::new(Mutex::new(logger))),

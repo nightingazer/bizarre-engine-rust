@@ -1,5 +1,7 @@
 use std::{fs::OpenOptions, io::Write};
 
+use anyhow::Result;
+
 use crate::{
     escape_sequence, log_errors::LogError, log_level::LogLevel, TerminalEscapeSequence, RESET,
 };
@@ -46,7 +48,7 @@ impl Logger {
         target: &LogTarget,
         level: &LogLevel,
         msg: &String,
-    ) -> Result<(), LogError> {
+    ) -> Result<(), anyhow::Error> {
         if target != &LogTarget::Stderr && level >= &LogLevel::Error {
             return Ok(());
         } else if target == &LogTarget::Stderr && level < &LogLevel::Error {
@@ -76,17 +78,12 @@ impl Logger {
                     .create(true)
                     .open(path)
                     .map_err(|e| LogError::CouldNotOpenFile {
-                        path: String::from(*path),
-                        reason: e.to_string(),
+                        path: path.to_string(),
+                        source: e.into(),
                     })?;
 
                 let msg = format!("{} [{}]: {}\n", self.label, level, msg);
-                file.write(msg.as_bytes())
-                    .map_err(|e| LogError::CouldNotPrintToFile {
-                        path: String::from(*path),
-                        reason: e.to_string(),
-                    })
-                    .map(|_| ())
+                Ok(file.write(msg.as_bytes()).map(|_| ())?)
             }
         }
     }
