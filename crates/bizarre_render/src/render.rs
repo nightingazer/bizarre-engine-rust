@@ -1,3 +1,4 @@
+pub mod constants;
 pub mod devices;
 pub mod errors;
 pub mod instance;

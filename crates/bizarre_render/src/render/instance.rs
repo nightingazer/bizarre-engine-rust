@@ -8,10 +8,7 @@ use vulkanalia::prelude::v1_2::*;
 use vulkanalia::vk::ExtDebugUtilsExtension;
 use vulkanalia::window as vk_window;
 
-const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
-
-const VALIDATION_LAYER: vk::ExtensionName =
-    vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
+use crate::constants::{VALIDATION_ENABLED, VALIDATION_LAYER};
 
 extern "system" fn debug_callback(
     severity: vk::DebugUtilsMessageSeverityFlagsEXT,

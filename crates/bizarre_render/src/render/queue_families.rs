@@ -4,13 +4,7 @@ use crate::errors::SuitabilityError;
 
 #[derive(Debug, Clone, Copy)]
 pub struct QueueFamilyIndices {
-    pub graphics: Option<u32>,
-}
-
-impl Default for QueueFamilyIndices {
-    fn default() -> Self {
-        Self { graphics: None }
-    }
+    pub graphics: u32,
 }
 
 impl QueueFamilyIndices {
@@ -24,10 +18,8 @@ impl QueueFamilyIndices {
             .position(|p| p.queue_flags.contains(vk::QueueFlags::GRAPHICS))
             .map(|i| i as u32);
 
-        if let Some(graphuics) = graphuics {
-            Ok(Self {
-                graphics: Some(graphuics),
-            })
+        if let Some(graphics) = graphuics {
+            Ok(Self { graphics })
         } else {
             Err(SuitabilityError("No suitable queue family found").into())
         }

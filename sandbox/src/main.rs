@@ -1,5 +1,5 @@
 use bizarre_engine::{
-    core::{input::keyboard_codes::KeyboardCode, App},
+    core::App,
     log::{app_logger_init, core_logger_init, debug, info},
 };
 
@@ -9,6 +9,4 @@ fn main() {
 
     let mut app = App::default();
     app.run();
-
-    debug!("Keycode: {}", KeyboardCode::A);
 }

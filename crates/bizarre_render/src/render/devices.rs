@@ -2,24 +2,33 @@ use bizarre_logger::{core_info, core_warn};
 use thiserror::Error;
 use vulkanalia::prelude::v1_2::*;
 
-use crate::{errors::SuitabilityError, queue_families::QueueFamilyIndices};
+use crate::{
+    constants::VALIDATION_LAYER, errors::SuitabilityError, queue_families::QueueFamilyIndices,
+};
 
 #[derive(Debug)]
 pub struct VulkanDevice {
-    pub handle: vk::Device,
-    pub physical_device: vk::PhysicalDevice,
-    pub queue_family_indices: QueueFamilyIndices,
+    pub logical: Device,
+    pub physical: vk::PhysicalDevice,
+    pub graphics_queue: vk::Queue,
 }
 
 impl VulkanDevice {
     pub unsafe fn new(instance: &Instance) -> anyhow::Result<Self> {
-        let physical_device = pick_physical_device(instance)?;
-        let queue_family_indices = QueueFamilyIndices::new(instance, physical_device)?;
+        let physical = pick_physical_device(instance)?;
+        let queue_family_indices = QueueFamilyIndices::new(instance, physical)?;
+        let logical = create_logical_device(instance, physical, &queue_family_indices)?;
+        let graphics_queue = logical.get_device_queue(queue_family_indices.graphics, 0);
+
         Ok(Self {
-            handle: Default::default(),
-            physical_device,
-            queue_family_indices,
+            logical,
+            physical,
+            graphics_queue,
         })
+    }
+
+    pub unsafe fn destroy(&mut self) {
+        self.logical.destroy_device(None);
     }
 }
 
@@ -59,4 +68,36 @@ unsafe fn check_physical_device(
     }
 
     Ok(())
+}
+
+unsafe fn create_logical_device(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    indices: &QueueFamilyIndices,
+) -> anyhow::Result<Device> {
+    let queue_priorities = &[1.0];
+    let queue_info = vk::DeviceQueueCreateInfo::builder()
+        .queue_family_index(indices.graphics)
+        .queue_priorities(queue_priorities);
+
+    let layers = if cfg!(debug_assertions) {
+        vec![VALIDATION_LAYER.as_ptr()]
+    } else {
+        vec![]
+    };
+
+    let extensions = vec![];
+
+    let features = vk::PhysicalDeviceFeatures::builder();
+
+    let queue_infos = &[queue_info];
+    let info = vk::DeviceCreateInfo::builder()
+        .queue_create_infos(queue_infos)
+        .enabled_layer_names(&layers)
+        .enabled_extension_names(&extensions)
+        .enabled_features(&features);
+
+    let device = instance.create_device(physical_device, &info, None)?;
+
+    Ok(device)
 }

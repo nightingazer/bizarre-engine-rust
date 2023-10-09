@@ -4,9 +4,8 @@ use vulkanalia::{
     vk::{self, ExtDebugUtilsExtension},
 };
 
-use vulkanalia::prelude::v1_2::*;
-
 use crate::{devices::VulkanDevice, instance::create_instance};
+use vulkanalia::prelude::v1_2::*;
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -53,6 +52,8 @@ impl Renderer {
 
     pub fn destroy(&mut self) -> anyhow::Result<()> {
         unsafe {
+            self.device.destroy();
+
             #[cfg(debug_assertions)]
             self.instance
                 .destroy_debug_utils_messenger_ext(self.debug_messenger, None);
