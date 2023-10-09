@@ -49,9 +49,9 @@ impl Logger {
         level: &LogLevel,
         msg: &String,
     ) -> Result<(), anyhow::Error> {
-        if target != &LogTarget::Stderr && level >= &LogLevel::Error {
-            return Ok(());
-        } else if target == &LogTarget::Stderr && level < &LogLevel::Error {
+        if (target != &LogTarget::Stderr && level >= &LogLevel::Error)
+            || (target == &LogTarget::Stderr && level < &LogLevel::Error)
+        {
             return Ok(());
         }
         match target {

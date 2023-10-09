@@ -6,4 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-"bizarre_logger" = {path = "../bizarre_logger"}
+"bizarre_logger" = { path = "../bizarre_logger" }
+"bizarre_core" = { path = "../bizarre_core" }
+"bizarre_render" = { path = "../bizarre_render" }

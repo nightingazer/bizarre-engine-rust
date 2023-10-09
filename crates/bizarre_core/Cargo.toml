@@ -1,0 +1,14 @@
+[package]
+name = "bizarre_core"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+winit = "0.28.7"
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+bizarre_logger = { path = "../bizarre_logger" }
+bizarre_render = {path = "../bizarre_render"}
+ctrlc = "3.4.1"
