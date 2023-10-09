@@ -1,9 +1,13 @@
+use std::collections::HashSet;
+
 use bizarre_logger::{core_info, core_warn};
-use thiserror::Error;
 use vulkanalia::prelude::v1_2::*;
 
 use crate::{
-    constants::VALIDATION_LAYER, errors::SuitabilityError, queue_families::QueueFamilyIndices,
+    constants::{DEVICE_EXTENSIONS, VALIDATION_LAYER},
+    errors::SuitabilityError,
+    queue_families::QueueFamilyIndices,
+    swapchain::SwapchainSupport,
 };
 
 #[derive(Debug)]
@@ -11,19 +15,22 @@ pub struct VulkanDevice {
     pub logical: Device,
     pub physical: vk::PhysicalDevice,
     pub graphics_queue: vk::Queue,
+    pub present_queue: vk::Queue,
 }
 
 impl VulkanDevice {
-    pub unsafe fn new(instance: &Instance) -> anyhow::Result<Self> {
-        let physical = pick_physical_device(instance)?;
-        let queue_family_indices = QueueFamilyIndices::new(instance, physical)?;
+    pub unsafe fn new(instance: &Instance, surface: vk::SurfaceKHR) -> anyhow::Result<Self> {
+        let physical = pick_physical_device(instance, surface)?;
+        let queue_family_indices = QueueFamilyIndices::new(instance, physical, surface)?;
         let logical = create_logical_device(instance, physical, &queue_family_indices)?;
         let graphics_queue = logical.get_device_queue(queue_family_indices.graphics, 0);
+        let present_queue = logical.get_device_queue(queue_family_indices.present, 0);
 
         Ok(Self {
             logical,
             physical,
             graphics_queue,
+            present_queue,
         })
     }
 
@@ -32,11 +39,14 @@ impl VulkanDevice {
     }
 }
 
-unsafe fn pick_physical_device(instance: &Instance) -> anyhow::Result<vk::PhysicalDevice> {
+unsafe fn pick_physical_device(
+    instance: &Instance,
+    surface: vk::SurfaceKHR,
+) -> anyhow::Result<vk::PhysicalDevice> {
     for physical_device in instance.enumerate_physical_devices()? {
         let properties = instance.get_physical_device_properties(physical_device);
 
-        if let Err(err) = check_physical_device(instance, physical_device) {
+        if let Err(err) = check_physical_device(instance, physical_device, surface) {
             core_warn!(
                 "Skipping physical device ('{}'): {}",
                 properties.device_name,
@@ -54,8 +64,11 @@ unsafe fn pick_physical_device(instance: &Instance) -> anyhow::Result<vk::Physic
 unsafe fn check_physical_device(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
+    surface: vk::SurfaceKHR,
 ) -> anyhow::Result<()> {
-    QueueFamilyIndices::new(instance, physical_device)?;
+    QueueFamilyIndices::new(instance, physical_device, surface)?;
+
+    check_physical_device_extensions(instance, physical_device)?;
 
     let properties = instance.get_physical_device_properties(physical_device);
     if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
@@ -67,7 +80,29 @@ unsafe fn check_physical_device(
         return Err(SuitabilityError("Device does not support geometry shaders").into());
     }
 
-    Ok(())
+    let support = SwapchainSupport::get(instance, physical_device, surface)?;
+    if support.formats.is_empty() || support.present_modes.is_empty() {
+        Err(SuitabilityError("Insufficient swapchain support").into())
+    } else {
+        Ok(())
+    }
+}
+
+unsafe fn check_physical_device_extensions(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+) -> anyhow::Result<()> {
+    let extensions = instance
+        .enumerate_device_extension_properties(physical_device, None)?
+        .iter()
+        .map(|e| e.extension_name)
+        .collect::<HashSet<_>>();
+
+    if DEVICE_EXTENSIONS.iter().all(|e| extensions.contains(e)) {
+        Ok(())
+    } else {
+        Err(SuitabilityError("Missing required device extensions").into())
+    }
 }
 
 unsafe fn create_logical_device(
@@ -75,10 +110,23 @@ unsafe fn create_logical_device(
     physical_device: vk::PhysicalDevice,
     indices: &QueueFamilyIndices,
 ) -> anyhow::Result<Device> {
+    let mut unique_indices = HashSet::new();
+    unique_indices.insert(indices.graphics);
+    unique_indices.insert(indices.present);
+
     let queue_priorities = &[1.0];
     let queue_info = vk::DeviceQueueCreateInfo::builder()
         .queue_family_index(indices.graphics)
         .queue_priorities(queue_priorities);
+
+    let queue_infos = unique_indices
+        .iter()
+        .map(|i| {
+            vk::DeviceQueueCreateInfo::builder()
+                .queue_family_index(*i)
+                .queue_priorities(queue_priorities)
+        })
+        .collect::<Vec<_>>();
 
     let layers = if cfg!(debug_assertions) {
         vec![VALIDATION_LAYER.as_ptr()]
@@ -86,13 +134,15 @@ unsafe fn create_logical_device(
         vec![]
     };
 
-    let extensions = vec![];
+    let mut extensions = DEVICE_EXTENSIONS
+        .iter()
+        .map(|e| e.as_ptr())
+        .collect::<Vec<_>>();
 
     let features = vk::PhysicalDeviceFeatures::builder();
 
-    let queue_infos = &[queue_info];
     let info = vk::DeviceCreateInfo::builder()
-        .queue_create_infos(queue_infos)
+        .queue_create_infos(&queue_infos)
         .enabled_layer_names(&layers)
         .enabled_extension_names(&extensions)
         .enabled_features(&features);
