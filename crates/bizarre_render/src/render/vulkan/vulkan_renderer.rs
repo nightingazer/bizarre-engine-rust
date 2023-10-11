@@ -18,6 +18,7 @@ pub struct VulkanRenderer {
 }
 
 #[derive(Debug)]
+#[derive(Default)]
 pub struct VulkanRenderContext {
     pub entry: Option<vulkanalia::Entry>,
     pub instance: Option<vulkanalia::Instance>,
@@ -62,18 +63,7 @@ impl VulkanRenderContext {
     }
 }
 
-impl Default for VulkanRenderContext {
-    fn default() -> Self {
-        Self {
-            entry: Default::default(),
-            instance: Default::default(),
-            device: Default::default(),
-            surface: Default::default(),
-            swapchain: Default::default(),
-            debug_messenger: Default::default(),
-        }
-    }
-}
+
 
 impl Renderer for VulkanRenderer {
     fn new(window: &winit::window::Window) -> anyhow::Result<Self> {
@@ -91,7 +81,7 @@ impl Renderer for VulkanRenderer {
             (instance, debug_messenger) = create_instance(window, &entry)?;
             surface = vk_window::create_surface(&instance, &window, &window)?;
             device = VulkanDevice::new(&instance, surface)?;
-            swapchain = VulkanSwapchain::new(&window, surface, &instance, &device)?;
+            swapchain = VulkanSwapchain::new(window, surface, &instance, &device)?;
         }
 
         let mut context = VulkanRenderContext::default()
@@ -119,7 +109,7 @@ impl Renderer for VulkanRenderer {
         unsafe {
             let device = &self.context.device.as_ref().unwrap().logical;
 
-            self.pipeline.destroy(&device);
+            self.pipeline.destroy(device);
 
             self.context.swapchain.as_ref().unwrap().destroy(device);
 
@@ -149,7 +139,7 @@ impl Renderer for VulkanRenderer {
         Ok(())
     }
 
-    fn render(&self, window: &winit::window::Window) -> anyhow::Result<()> {
+    fn render(&self, _window: &winit::window::Window) -> anyhow::Result<()> {
         Ok(())
     }
 }

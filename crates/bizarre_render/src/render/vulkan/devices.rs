@@ -116,7 +116,7 @@ unsafe fn create_logical_device(
     unique_indices.insert(indices.present);
 
     let queue_priorities = &[1.0];
-    let queue_info = vk::DeviceQueueCreateInfo::builder()
+    let _queue_info = vk::DeviceQueueCreateInfo::builder()
         .queue_family_index(indices.graphics)
         .queue_priorities(queue_priorities);
 
@@ -135,7 +135,7 @@ unsafe fn create_logical_device(
         vec![]
     };
 
-    let mut extensions = DEVICE_EXTENSIONS
+    let extensions = DEVICE_EXTENSIONS
         .iter()
         .map(|e| e.as_ptr())
         .collect::<Vec<_>>();

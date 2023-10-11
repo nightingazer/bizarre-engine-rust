@@ -19,8 +19,8 @@ impl Pipeline {
             .logical
             .create_pipeline_layout(&layout_create_info, None)?;
 
-        let render_pass = create_render_pass(&ctx)?;
-        let pipeline = create_pipeline(layout, render_pass, &ctx)?;
+        let render_pass = create_render_pass(ctx)?;
+        let pipeline = create_pipeline(layout, render_pass, ctx)?;
 
         Ok(Self {
             layout,
@@ -116,7 +116,7 @@ unsafe fn create_pipeline(
         .attachments(attachments)
         .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
-    let dynamic_states = &[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    let _dynamic_states = &[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
 
     let stages = &[vert_stage, frag_stage];
 

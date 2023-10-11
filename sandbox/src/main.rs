@@ -1,6 +1,6 @@
 use bizarre_engine::{
     core::App,
-    log::{app_logger_init, core_logger_init, debug, info},
+    log::{app_logger_init, core_logger_init},
 };
 
 fn main() {
