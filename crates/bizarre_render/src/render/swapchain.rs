@@ -89,19 +89,65 @@ impl VulkanSwapchain {
 
         let handle = device.logical.create_swapchain_khr(&create_info, None)?;
         let images = device.logical.get_swapchain_images_khr(handle)?;
+        let image_views = create_image_views(&device.logical, format.format, &images)?;
 
         Ok(Self {
             handle,
             format,
             extent,
             images,
-            image_views: vec![],
+            image_views,
         })
     }
 
+    pub unsafe fn recreate_image_views(&mut self, device: &Device) -> anyhow::Result<()> {
+        self.image_views = create_image_views(device, self.format.format, &self.images)?;
+
+        Ok(())
+    }
+
     pub unsafe fn destroy(&mut self, device: &VulkanDevice) {
+        self.image_views.iter().for_each(|i| {
+            device.logical.destroy_image_view(*i, None);
+        });
+
         device.logical.destroy_swapchain_khr(self.handle, None);
     }
+}
+
+unsafe fn create_image_views(
+    device: &Device,
+    format: vk::Format,
+    images: &Vec<vk::Image>,
+) -> anyhow::Result<Vec<vk::ImageView>> {
+    let image_views = images
+        .iter()
+        .map(|i| {
+            let components = vk::ComponentMapping::builder()
+                .r(vk::ComponentSwizzle::IDENTITY)
+                .g(vk::ComponentSwizzle::IDENTITY)
+                .b(vk::ComponentSwizzle::IDENTITY)
+                .a(vk::ComponentSwizzle::IDENTITY);
+
+            let subresource_range = vk::ImageSubresourceRange::builder()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .base_mip_level(0)
+                .level_count(1)
+                .base_array_layer(0)
+                .layer_count(1);
+
+            let info = vk::ImageViewCreateInfo::builder()
+                .image(*i)
+                .view_type(vk::ImageViewType::_2D)
+                .format(format)
+                .components(components)
+                .subresource_range(subresource_range);
+
+            device.create_image_view(&info, None)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(image_views)
 }
 
 fn get_swapchain_surface_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
