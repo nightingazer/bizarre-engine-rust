@@ -33,6 +33,7 @@ pub struct VulkanSwapchain {
     pub format: vk::SurfaceFormatKHR,
     pub extent: vk::Extent2D,
     pub images: Vec<vk::Image>,
+    pub image_views: Vec<vk::ImageView>,
 }
 
 impl VulkanSwapchain {
@@ -94,7 +95,12 @@ impl VulkanSwapchain {
             format,
             extent,
             images,
+            image_views: vec![],
         })
+    }
+
+    pub unsafe fn destroy(&mut self, device: &VulkanDevice) {
+        device.logical.destroy_swapchain_khr(self.handle, None);
     }
 }
 

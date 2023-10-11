@@ -23,7 +23,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(window: &winit::window::Window) -> anyhow::Result<Self> {
+    pub fn new(window: &winit::window::Window) -> anyhow::Result<Renderer> {
         let entry: vulkanalia::Entry;
         let instance: vulkanalia::Instance;
         let device: VulkanDevice;
@@ -45,9 +45,9 @@ impl Renderer {
         return Ok(Self {
             entry,
             instance,
-            device,
             surface,
             swapchain,
+            device,
 
             debug_messenger,
         });
@@ -64,9 +64,7 @@ impl Renderer {
 
     pub fn destroy(&mut self) -> anyhow::Result<()> {
         unsafe {
-            self.device
-                .logical
-                .destroy_swapchain_khr(self.swapchain.handle, None);
+            self.swapchain.destroy(&self.device);
 
             self.device.destroy();
 
