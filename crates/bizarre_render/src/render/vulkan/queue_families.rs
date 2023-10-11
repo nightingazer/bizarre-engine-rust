@@ -1,6 +1,6 @@
 use vulkanalia::{prelude::v1_2::*, vk::KhrSurfaceExtension};
 
-use crate::errors::SuitabilityError;
+use super::vulkan_errors::SuitabilityError;
 
 #[derive(Debug, Clone, Copy)]
 pub struct QueueFamilyIndices {

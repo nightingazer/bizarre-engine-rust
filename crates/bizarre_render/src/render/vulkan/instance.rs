@@ -1,14 +1,14 @@
 use std::collections::HashSet;
 use std::ffi::CStr;
 
-use anyhow::anyhow;
+use crate::vulkan::vulkan_constants::{VALIDATION_ENABLED, VALIDATION_LAYER};
+
 use bizarre_logger::{core_debug, core_error, core_info, core_warn};
-use vulkanalia::loader::{LibloadingLoader, LIBRARY};
+
+use anyhow::anyhow;
+
 use vulkanalia::prelude::v1_2::*;
 use vulkanalia::vk::ExtDebugUtilsExtension;
-use vulkanalia::window as vk_window;
-
-use crate::constants::{VALIDATION_ENABLED, VALIDATION_LAYER};
 
 extern "system" fn debug_callback(
     severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -43,7 +43,7 @@ pub unsafe fn create_instance(
         .engine_version(vk::make_version(0, 1, 0))
         .api_version(vk::make_version(1, 2, 0));
 
-    let mut extensions = vk_window::get_required_instance_extensions(window)
+    let mut extensions = vulkanalia::window::get_required_instance_extensions(window)
         .iter()
         .map(|e| e.as_ptr())
         .collect::<Vec<_>>();

@@ -2,8 +2,8 @@ use bizarre_logger::core_warn;
 use vulkanalia::prelude::v1_2::*;
 use vulkanalia::vk::{self, KhrSurfaceExtension, KhrSwapchainExtension};
 
-use crate::devices::VulkanDevice;
-use crate::queue_families::QueueFamilyIndices;
+use super::devices::VulkanDevice;
+use super::queue_families::QueueFamilyIndices;
 
 pub struct SwapchainSupport {
     pub capabilities: vk::SurfaceCapabilitiesKHR,
@@ -106,12 +106,12 @@ impl VulkanSwapchain {
         Ok(())
     }
 
-    pub unsafe fn destroy(&mut self, device: &VulkanDevice) {
+    pub unsafe fn destroy(&self, device: &Device) {
         self.image_views.iter().for_each(|i| {
-            device.logical.destroy_image_view(*i, None);
+            device.destroy_image_view(*i, None);
         });
 
-        device.logical.destroy_swapchain_khr(self.handle, None);
+        device.destroy_swapchain_khr(self.handle, None);
     }
 }
 

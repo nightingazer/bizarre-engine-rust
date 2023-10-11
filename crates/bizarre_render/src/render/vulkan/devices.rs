@@ -1,13 +1,14 @@
+use crate::vulkan::swapchain::SwapchainSupport;
 use std::collections::HashSet;
 
 use bizarre_logger::{core_info, core_warn};
 use vulkanalia::prelude::v1_2::*;
 
-use crate::{
-    constants::{DEVICE_EXTENSIONS, VALIDATION_LAYER},
-    errors::SuitabilityError,
-    queue_families::QueueFamilyIndices,
-    swapchain::SwapchainSupport,
+use crate::vulkan::vulkan_constants::VALIDATION_LAYER;
+
+use super::{
+    queue_families::QueueFamilyIndices, vulkan_constants::DEVICE_EXTENSIONS,
+    vulkan_errors::SuitabilityError,
 };
 
 #[derive(Debug)]
@@ -34,7 +35,7 @@ impl VulkanDevice {
         })
     }
 
-    pub unsafe fn destroy(&mut self) {
+    pub unsafe fn destroy(&self) {
         self.logical.destroy_device(None);
     }
 }

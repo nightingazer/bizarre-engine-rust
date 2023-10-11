@@ -1,84 +1,33 @@
-use anyhow::anyhow;
-use vulkanalia::{
-    loader::{LibloadingLoader, LIBRARY},
-    vk::{self, ExtDebugUtilsExtension, KhrSwapchainExtension},
-    window as vk_window,
-};
+use std::fmt::Debug;
 
-use vulkanalia::vk::KhrSurfaceExtension;
+use crate::vulkan::vulkan_renderer::VulkanRenderer;
 
-use crate::{devices::VulkanDevice, instance::create_instance, swapchain::VulkanSwapchain};
-use vulkanalia::prelude::v1_2::*;
+pub trait Renderer: Debug {
+    fn new(window: &winit::window::Window) -> anyhow::Result<Self>
+    where
+        Self: Sized;
+    fn destroy(&self) -> anyhow::Result<()>;
 
-#[derive(Debug)]
-pub struct Renderer {
-    entry: vulkanalia::Entry,
-    instance: vulkanalia::Instance,
-    device: VulkanDevice,
-    surface: vk::SurfaceKHR,
-    swapchain: VulkanSwapchain,
-
-    #[cfg(debug_assertions)]
-    debug_messenger: vk::DebugUtilsMessengerEXT,
+    fn render(&self, window: &winit::window::Window) -> anyhow::Result<()>;
 }
 
-impl Renderer {
-    pub fn new(window: &winit::window::Window) -> anyhow::Result<Renderer> {
-        let entry: vulkanalia::Entry;
-        let instance: vulkanalia::Instance;
-        let device: VulkanDevice;
-        let surface: vk::SurfaceKHR;
-        let swapchain: VulkanSwapchain;
+pub enum RendererBackend {
+    Vulkan,
+    OpenGL,
+    Metal,
+    DirectX,
+}
 
-        let debug_messenger: vk::DebugUtilsMessengerEXT;
+pub fn create_renderer(
+    window: &winit::window::Window,
+    backend: RendererBackend,
+) -> anyhow::Result<Box<dyn Renderer>> {
+    let renderer = match backend {
+        RendererBackend::Vulkan => VulkanRenderer::new(window)?,
+        RendererBackend::OpenGL => unimplemented!("OpenGL is not yet supported."),
+        RendererBackend::Metal => unimplemented!("Metal is not yet supported."),
+        RendererBackend::DirectX => unimplemented!("DirectX is not yet supported."),
+    };
 
-        unsafe {
-            let loader = LibloadingLoader::new(LIBRARY)?;
-            entry = vulkanalia::Entry::new(loader).map_err(|e| anyhow!(e))?;
-            (instance, debug_messenger) = create_instance(window, &entry)?;
-            surface = vk_window::create_surface(&instance, &window, &window)?;
-            device = VulkanDevice::new(&instance, surface)?;
-            swapchain = VulkanSwapchain::new(&window, surface, &instance, &device)?;
-        }
-
-        #[cfg(debug_assertions)]
-        return Ok(Self {
-            entry,
-            instance,
-            surface,
-            swapchain,
-            device,
-
-            debug_messenger,
-        });
-
-        #[cfg(not(debug_assertions))]
-        return Ok(Self {
-            entry,
-            instance,
-            device,
-            surface,
-            swapchain,
-        });
-    }
-
-    pub fn destroy(&mut self) -> anyhow::Result<()> {
-        unsafe {
-            self.swapchain.destroy(&self.device);
-
-            self.device.destroy();
-
-            #[cfg(debug_assertions)]
-            self.instance
-                .destroy_debug_utils_messenger_ext(self.debug_messenger, None);
-
-            self.instance.destroy_surface_khr(self.surface, None);
-            self.instance.destroy_instance(None);
-        }
-        Ok(())
-    }
-
-    pub fn render(&self, window: &winit::window::Window) -> anyhow::Result<()> {
-        Ok(())
-    }
+    Ok(Box::new(renderer))
 }

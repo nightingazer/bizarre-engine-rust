@@ -1,7 +1,7 @@
 use std::sync::mpsc::{channel, Receiver};
 
-use bizarre_logger::info;
-use bizarre_render::renderer::Renderer;
+use bizarre_logger::{core_debug, core_info, info};
+use bizarre_render::renderer::{create_renderer, Renderer, RendererBackend};
 use winit::platform::run_return::EventLoopExtRunReturn;
 
 pub struct AppConfig {
@@ -21,7 +21,7 @@ pub struct App {
     title: Box<str>,
 
     window: winit::window::Window,
-    renderer: Renderer,
+    renderer: Box<dyn Renderer>,
     event_loop: winit::event_loop::EventLoop<()>,
 
     destroying: bool,
@@ -45,7 +45,8 @@ impl App {
             .build(&event_loop)
             .expect("Failed to create window");
 
-        let renderer = Renderer::new(&window).expect("Failed to create renderer");
+        let renderer =
+            create_renderer(&window, RendererBackend::Vulkan).expect("Failed to create renderer");
 
         let (tx, rx) = channel::<()>();
 
@@ -63,7 +64,8 @@ impl App {
     }
 
     pub fn run<'a>(&mut self) {
-        info!("Running the \"{}\" application", self.title);
+        core_info!("Running the \"{}\" application", self.title);
+        core_debug!("{:?}", self);
 
         self.event_loop.run_return(|event, _, control_flow| {
             *control_flow = winit::event_loop::ControlFlow::Poll;
