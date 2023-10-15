@@ -8,70 +8,38 @@ use vulkanalia::{
 
 use crate::renderer::Renderer;
 
+use super::framebuffer::create_framebuffers;
 use super::pipeline::Pipeline;
-use super::{devices::VulkanDevice, instance::create_instance, swapchain::VulkanSwapchain};
+use super::{devices::VulkanDevices, instance::create_instance, swapchain::VulkanSwapchain};
 
 #[derive(Debug)]
 pub struct VulkanRenderer {
     context: VulkanRenderContext,
-    pipeline: Pipeline,
 }
 
 #[derive(Debug)]
-#[derive(Default)]
 pub struct VulkanRenderContext {
-    pub entry: Option<vulkanalia::Entry>,
-    pub instance: Option<vulkanalia::Instance>,
-    pub device: Option<VulkanDevice>,
-    pub surface: Option<vk::SurfaceKHR>,
-    pub swapchain: Option<VulkanSwapchain>,
+    pub entry: vulkanalia::Entry,
+    pub instance: vulkanalia::Instance,
+    pub device: VulkanDevices,
+    pub surface: vk::SurfaceKHR,
+    pub swapchain: VulkanSwapchain,
+    pub pipeline: Pipeline,
+    pub framebuffers: Vec<vk::Framebuffer>,
 
     #[cfg(debug_assertions)]
-    pub debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
+    pub debug_messenger: vk::DebugUtilsMessengerEXT,
 }
-
-impl VulkanRenderContext {
-    pub fn entry(mut self, entry: vulkanalia::Entry) -> Self {
-        self.entry = Some(entry);
-        self
-    }
-
-    pub fn instance(mut self, instance: vulkanalia::Instance) -> Self {
-        self.instance = Some(instance);
-        self
-    }
-
-    pub fn device(mut self, device: VulkanDevice) -> Self {
-        self.device = Some(device);
-        self
-    }
-
-    pub fn surface(mut self, surface: vk::SurfaceKHR) -> Self {
-        self.surface = Some(surface);
-        self
-    }
-
-    pub fn swapchain(mut self, swapchain: VulkanSwapchain) -> Self {
-        self.swapchain = Some(swapchain);
-        self
-    }
-
-    #[cfg(debug_assertions)]
-    pub fn debug_messenger(mut self, debug_messenger: vk::DebugUtilsMessengerEXT) -> Self {
-        self.debug_messenger = Some(debug_messenger);
-        self
-    }
-}
-
-
 
 impl Renderer for VulkanRenderer {
     fn new(window: &winit::window::Window) -> anyhow::Result<Self> {
         let entry: vulkanalia::Entry;
         let instance: vulkanalia::Instance;
-        let device: VulkanDevice;
+        let device: VulkanDevices;
         let surface: vk::SurfaceKHR;
         let swapchain: VulkanSwapchain;
+        let pipeline: Pipeline;
+        let framebuffers: Vec<vk::Framebuffer>;
 
         let debug_messenger: vk::DebugUtilsMessengerEXT;
 
@@ -80,61 +48,73 @@ impl Renderer for VulkanRenderer {
             entry = vulkanalia::Entry::new(loader).map_err(|e| anyhow!(e))?;
             (instance, debug_messenger) = create_instance(window, &entry)?;
             surface = vk_window::create_surface(&instance, &window, &window)?;
-            device = VulkanDevice::new(&instance, surface)?;
+            device = VulkanDevices::new(&instance, surface)?;
             swapchain = VulkanSwapchain::new(window, surface, &instance, &device)?;
+            pipeline = Pipeline::new(&swapchain, &device.logical)?;
+            framebuffers = create_framebuffers(
+                &swapchain.image_views,
+                &swapchain.extent,
+                pipeline.render_pass,
+                &device.logical,
+            )?;
         }
-
-        let mut context = VulkanRenderContext::default()
-            .entry(entry)
-            .instance(instance)
-            .device(device)
-            .surface(surface)
-            .swapchain(swapchain);
 
         #[cfg(debug_assertions)]
         {
-            context.debug_messenger = Some(debug_messenger);
+            let context = VulkanRenderContext {
+                entry,
+                instance,
+                device,
+                surface,
+                swapchain,
+                pipeline,
+                framebuffers,
+                debug_messenger,
+            };
+            Ok(Self { context })
         }
 
-        let pipeline: Pipeline;
-
-        unsafe {
-            pipeline = Pipeline::new(&context)?;
+        #[cfg(not(debug_assertions))]
+        {
+            let context = VulkanRenderContext {
+                entry,
+                instance,
+                device,
+                surface,
+                swapchain,
+                pipeline,
+                framebuffers,
+            };
+            Ok(Self { context })
         }
-
-        Ok(Self { context, pipeline })
     }
 
     fn destroy(&self) -> anyhow::Result<()> {
         unsafe {
-            let device = &self.context.device.as_ref().unwrap().logical;
+            let device = &self.context.device.logical;
 
-            self.pipeline.destroy(device);
+            for framebuffer in self.context.framebuffers.iter() {
+                device.destroy_framebuffer(*framebuffer, None);
+            }
 
-            self.context.swapchain.as_ref().unwrap().destroy(device);
+            self.context.pipeline.destroy(device);
 
-            self.context.device.as_ref().unwrap().destroy();
+            self.context.swapchain.destroy(device);
+
+            self.context.device.destroy();
 
             #[cfg(debug_assertions)]
             {
                 self.context
                     .instance
-                    .as_ref()
-                    .unwrap()
-                    .destroy_debug_utils_messenger_ext(self.context.debug_messenger.unwrap(), None);
+                    .destroy_debug_utils_messenger_ext(self.context.debug_messenger, None);
             }
 
             self.context
                 .instance
-                .as_ref()
-                .unwrap()
-                .destroy_surface_khr(self.context.surface.unwrap(), None);
+                .destroy_surface_khr(self.context.surface, None);
 
-            self.context
-                .instance
-                .as_ref()
-                .unwrap()
-                .destroy_instance(None);
+            self.context.instance.destroy_instance(None);
         }
         Ok(())
     }

@@ -2,7 +2,7 @@ use bizarre_logger::core_warn;
 use vulkanalia::prelude::v1_2::*;
 use vulkanalia::vk::{self, KhrSurfaceExtension, KhrSwapchainExtension};
 
-use super::devices::VulkanDevice;
+use super::devices::VulkanDevices;
 use super::queue_families::QueueFamilyIndices;
 
 pub struct SwapchainSupport {
@@ -41,10 +41,10 @@ impl VulkanSwapchain {
         window: &winit::window::Window,
         surface: vk::SurfaceKHR,
         instance: &Instance,
-        device: &VulkanDevice,
+        vulkan_devices: &VulkanDevices,
     ) -> anyhow::Result<Self> {
-        let indices = QueueFamilyIndices::new(instance, device.physical, surface)?;
-        let support = SwapchainSupport::get(instance, device.physical, surface)?;
+        let indices = QueueFamilyIndices::new(instance, vulkan_devices.physical, surface)?;
+        let support = SwapchainSupport::get(instance, vulkan_devices.physical, surface)?;
 
         let format = get_swapchain_surface_format(&support.formats);
         let present_mode = get_swapchain_present_mode(&support.present_modes);
@@ -87,9 +87,11 @@ impl VulkanSwapchain {
             .clipped(true)
             .old_swapchain(vk::SwapchainKHR::null());
 
-        let handle = device.logical.create_swapchain_khr(&create_info, None)?;
-        let images = device.logical.get_swapchain_images_khr(handle)?;
-        let image_views = create_image_views(&device.logical, format.format, &images)?;
+        let handle = vulkan_devices
+            .logical
+            .create_swapchain_khr(&create_info, None)?;
+        let images = vulkan_devices.logical.get_swapchain_images_khr(handle)?;
+        let image_views = create_image_views(&vulkan_devices.logical, format.format, &images)?;
 
         Ok(Self {
             handle,

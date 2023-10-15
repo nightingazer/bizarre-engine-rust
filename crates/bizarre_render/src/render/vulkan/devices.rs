@@ -12,14 +12,14 @@ use super::{
 };
 
 #[derive(Debug)]
-pub struct VulkanDevice {
+pub struct VulkanDevices {
     pub logical: Device,
     pub physical: vk::PhysicalDevice,
     pub graphics_queue: vk::Queue,
     pub present_queue: vk::Queue,
 }
 
-impl VulkanDevice {
+impl VulkanDevices {
     pub unsafe fn new(instance: &Instance, surface: vk::SurfaceKHR) -> anyhow::Result<Self> {
         let physical = pick_physical_device(instance, surface)?;
         let queue_family_indices = QueueFamilyIndices::new(instance, physical, surface)?;

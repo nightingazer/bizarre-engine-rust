@@ -65,7 +65,6 @@ impl App {
 
     pub fn run<'a>(&mut self) {
         core_info!("Running the \"{}\" application", self.title);
-        core_debug!("{:?}", self);
 
         self.event_loop.run_return(|event, _, control_flow| {
             *control_flow = winit::event_loop::ControlFlow::Poll;

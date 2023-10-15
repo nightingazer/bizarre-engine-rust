@@ -1,6 +1,6 @@
 use vulkanalia::{bytecode::Bytecode, prelude::v1_2::*};
 
-use super::vulkan_renderer::VulkanRenderContext;
+use super::{swapchain::VulkanSwapchain, vulkan_renderer::VulkanRenderContext};
 
 #[derive(Debug)]
 pub struct Pipeline {
@@ -10,17 +10,12 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub unsafe fn new(ctx: &VulkanRenderContext) -> anyhow::Result<Self> {
+    pub unsafe fn new(swapchain: &VulkanSwapchain, device: &Device) -> anyhow::Result<Self> {
         let layout_create_info = vk::PipelineLayoutCreateInfo::builder();
-        let layout = ctx
-            .device
-            .as_ref()
-            .unwrap()
-            .logical
-            .create_pipeline_layout(&layout_create_info, None)?;
+        let layout = device.create_pipeline_layout(&layout_create_info, None)?;
 
-        let render_pass = create_render_pass(ctx)?;
-        let pipeline = create_pipeline(layout, render_pass, ctx)?;
+        let render_pass = create_render_pass(&swapchain.format.format, device)?;
+        let pipeline = create_pipeline(layout, &swapchain.extent, render_pass, device)?;
 
         Ok(Self {
             layout,
@@ -38,14 +33,12 @@ impl Pipeline {
 
 unsafe fn create_pipeline(
     layout: vk::PipelineLayout,
+    extent: &vk::Extent2D,
     render_pass: vk::RenderPass,
-    ctx: &VulkanRenderContext,
+    device: &Device,
 ) -> anyhow::Result<vk::Pipeline> {
     let frag = include_bytes!("./../../../../../assets/shaders/base.frag.spv");
     let vert = include_bytes!("./../../../../../assets/shaders/base.vert.spv");
-
-    let device = &ctx.device.as_ref().unwrap().logical;
-    let extent = &ctx.swapchain.as_ref().unwrap().extent;
 
     let frag_module = create_shader_module(device, frag)?;
     let vert_module = create_shader_module(device, vert)?;
@@ -156,11 +149,12 @@ unsafe fn create_shader_module(
     Ok(device.create_shader_module(&info, None)?)
 }
 
-unsafe fn create_render_pass(ctx: &VulkanRenderContext) -> anyhow::Result<vk::RenderPass> {
-    let format = ctx.swapchain.as_ref().unwrap().format.format;
-
+unsafe fn create_render_pass(
+    format: &vk::Format,
+    device: &Device,
+) -> anyhow::Result<vk::RenderPass> {
     let color_attachment = vk::AttachmentDescription::builder()
-        .format(format)
+        .format(*format)
         .samples(vk::SampleCountFlags::_1)
         .load_op(vk::AttachmentLoadOp::CLEAR)
         .store_op(vk::AttachmentStoreOp::STORE)
@@ -186,6 +180,5 @@ unsafe fn create_render_pass(ctx: &VulkanRenderContext) -> anyhow::Result<vk::Re
         .attachments(attachments)
         .subpasses(subpasses);
 
-    let device = &ctx.device.as_ref().unwrap().logical;
     Ok(device.create_render_pass(&info, None)?)
 }

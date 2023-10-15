@@ -1,4 +1,5 @@
 pub mod devices;
+pub mod framebuffer;
 pub mod instance;
 pub mod pipeline;
 pub mod queue_families;
