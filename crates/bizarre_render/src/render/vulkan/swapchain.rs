@@ -43,7 +43,7 @@ impl VulkanSwapchain {
         instance: &Instance,
         vulkan_devices: &VulkanDevices,
     ) -> anyhow::Result<Self> {
-        let indices = QueueFamilyIndices::new(instance, vulkan_devices.physical, surface)?;
+        let indices = QueueFamilyIndices::get(instance, vulkan_devices.physical, surface)?;
         let support = SwapchainSupport::get(instance, vulkan_devices.physical, surface)?;
 
         let format = get_swapchain_surface_format(&support.formats);

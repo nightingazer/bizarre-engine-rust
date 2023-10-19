@@ -1,8 +1,10 @@
+pub mod commands;
 pub mod devices;
 pub mod framebuffer;
 pub mod instance;
 pub mod pipeline;
 pub mod queue_families;
+pub mod render_sync;
 pub mod swapchain;
 pub mod vulkan_constants;
 pub mod vulkan_errors;

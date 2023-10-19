@@ -9,7 +9,7 @@ pub struct QueueFamilyIndices {
 }
 
 impl QueueFamilyIndices {
-    pub unsafe fn new(
+    pub unsafe fn get(
         instance: &Instance,
         physical_device: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,

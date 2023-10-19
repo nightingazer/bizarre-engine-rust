@@ -22,7 +22,7 @@ pub struct VulkanDevices {
 impl VulkanDevices {
     pub unsafe fn new(instance: &Instance, surface: vk::SurfaceKHR) -> anyhow::Result<Self> {
         let physical = pick_physical_device(instance, surface)?;
-        let queue_family_indices = QueueFamilyIndices::new(instance, physical, surface)?;
+        let queue_family_indices = QueueFamilyIndices::get(instance, physical, surface)?;
         let logical = create_logical_device(instance, physical, &queue_family_indices)?;
         let graphics_queue = logical.get_device_queue(queue_family_indices.graphics, 0);
         let present_queue = logical.get_device_queue(queue_family_indices.present, 0);
@@ -67,7 +67,7 @@ unsafe fn check_physical_device(
     physical_device: vk::PhysicalDevice,
     surface: vk::SurfaceKHR,
 ) -> anyhow::Result<()> {
-    QueueFamilyIndices::new(instance, physical_device, surface)?;
+    QueueFamilyIndices::get(instance, physical_device, surface)?;
 
     check_physical_device_extensions(instance, physical_device)?;
 
