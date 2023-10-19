@@ -9,7 +9,7 @@ pub trait Renderer: Debug {
     fn destroy(&mut self) -> anyhow::Result<()>;
 
     fn render(&mut self, window: &winit::window::Window) -> anyhow::Result<()>;
-    fn on_resize(&mut self) -> anyhow::Result<()>;
+    fn on_resize(&mut self, window_size: (u32, u32)) -> anyhow::Result<()>;
 }
 
 pub enum RendererBackend {

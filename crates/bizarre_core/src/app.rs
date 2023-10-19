@@ -85,14 +85,16 @@ impl App {
                         self.destroying = true;
                         *control_flow = winit::event_loop::ControlFlow::Exit;
                     }
-                    winit::event::WindowEvent::Resized(_) => match self.renderer.on_resize() {
-                        Ok(_) => (),
-                        Err(e) => {
-                            core_critical!("Failed to resize: {}", e);
-                            self.destroying = true;
-                            *control_flow = winit::event_loop::ControlFlow::Exit;
+                    winit::event::WindowEvent::Resized(phys_size) => {
+                        match self.renderer.on_resize((phys_size.width, phys_size.height)) {
+                            Ok(_) => (),
+                            Err(e) => {
+                                core_critical!("Failed to resize: {}", e);
+                                self.destroying = true;
+                                *control_flow = winit::event_loop::ControlFlow::Exit;
+                            }
                         }
-                    },
+                    }
                     _ => (),
                 },
                 _ => (),

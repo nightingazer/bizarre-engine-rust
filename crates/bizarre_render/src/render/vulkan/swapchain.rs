@@ -39,16 +39,15 @@ pub struct VulkanSwapchain {
 
 impl VulkanSwapchain {
     pub unsafe fn new(
-        window: &winit::window::Window,
+        window_size: (u32, u32),
         surface: vk::SurfaceKHR,
-        old_swapchain: vk::SwapchainKHR,
         instance: &Instance,
         vulkan_devices: &VulkanDevices,
     ) -> anyhow::Result<Self> {
         let support = SwapchainSupport::get(instance, vulkan_devices.physical, surface)?;
 
         let format = get_swapchain_surface_format(&support.formats);
-        let extent = get_swapchain_extent(window, support.capabilities);
+        let extent = get_swapchain_extent(window_size, support.capabilities);
 
         let mut image_count = support.capabilities.min_image_count + 1;
         if support.capabilities.max_image_count != 0
@@ -70,7 +69,6 @@ impl VulkanSwapchain {
             extent,
             vulkan_devices,
             instance,
-            vk::SwapchainKHR::null(),
         )?;
 
         let images = vulkan_devices.logical.get_swapchain_images_khr(handle)?;
@@ -108,7 +106,6 @@ unsafe fn create_swapchain(
     extent: vk::Extent2D,
     devices: &VulkanDevices,
     instance: &Instance,
-    old_swapchain: vk::SwapchainKHR,
 ) -> anyhow::Result<vk::SwapchainKHR> {
     let indices = QueueFamilyIndices::get(instance, devices.physical, surface)?;
     let mut queue_family_indices = vec![];
@@ -135,8 +132,7 @@ unsafe fn create_swapchain(
         .pre_transform(support.capabilities.current_transform)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
         .present_mode(present_mode)
-        .clipped(true)
-        .old_swapchain(old_swapchain);
+        .clipped(true);
 
     let handle = devices.logical.create_swapchain_khr(&create_info, None)?;
 
@@ -198,22 +194,23 @@ fn get_swapchain_present_mode(modes: &[vk::PresentModeKHR]) -> vk::PresentModeKH
 }
 
 fn get_swapchain_extent(
-    window: &winit::window::Window,
+    window_size: (u32, u32),
     capabilities: vk::SurfaceCapabilitiesKHR,
 ) -> vk::Extent2D {
+    let (width, height) = window_size;
+
     if capabilities.current_extent.width != u32::MAX {
         capabilities.current_extent
     } else {
-        let size = window.inner_size();
         let clamp = |value: u32, min: u32, max: u32| min.max(max.min(value));
         vk::Extent2D::builder()
             .width(clamp(
-                size.width,
+                width,
                 capabilities.min_image_extent.width,
                 capabilities.max_image_extent.width,
             ))
             .height(clamp(
-                size.height,
+                height,
                 capabilities.min_image_extent.height,
                 capabilities.max_image_extent.height,
             ))

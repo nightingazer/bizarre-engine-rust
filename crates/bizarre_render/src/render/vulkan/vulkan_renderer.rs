@@ -37,7 +37,8 @@ pub struct VulkanRenderContext {
     pub frame: usize,
     pub in_flight_fences: [vk::Fence; MAX_FRAMES_IN_FLIGHT],
     pub images_in_flight: Vec<vk::Fence>,
-    pub window: *const winit::window::Window,
+    pub window_height: u32,
+    pub window_width: u32,
 
     #[cfg(debug_assertions)]
     pub debug_messenger: vk::DebugUtilsMessengerEXT,
@@ -71,11 +72,11 @@ impl VulkanRenderer {
         let device = &self.context.devices.logical;
 
         device.device_wait_idle()?;
+        let window_size = (self.context.window_width, self.context.window_height);
 
         let new_swapchain = VulkanSwapchain::new(
-            &*self.context.window,
+            window_size,
             self.context.surface,
-            vk::SwapchainKHR::null(),
             &self.context.instance,
             &self.context.devices,
         )?;
@@ -123,7 +124,7 @@ impl VulkanRenderer {
         let image_index = match result {
             Ok((image_index, _)) => image_index as usize,
             Err(vk::ErrorCode::OUT_OF_DATE_KHR) => {
-                return self.on_resize();
+                return self.on_resize((self.context.window_width, self.context.window_height));
             }
             Err(e) => return Err(anyhow!(e)),
         };
@@ -193,19 +194,16 @@ impl Renderer for VulkanRenderer {
 
         let debug_messenger: vk::DebugUtilsMessengerEXT;
 
+        let window_size = window.inner_size();
+        let window_size = (window_size.width, window_size.height);
+
         unsafe {
             let loader = LibloadingLoader::new(LIBRARY)?;
             entry = vulkanalia::Entry::new(loader).map_err(|e| anyhow!(e))?;
             (instance, debug_messenger) = create_instance(window, &entry)?;
             surface = vk_window::create_surface(&instance, &window, &window)?;
             devices = VulkanDevices::new(&instance, surface)?;
-            swapchain = VulkanSwapchain::new(
-                window,
-                surface,
-                vk::SwapchainKHR::null(),
-                &instance,
-                &devices,
-            )?;
+            swapchain = VulkanSwapchain::new(window_size, surface, &instance, &devices)?;
             pipeline = Pipeline::new(&swapchain, &devices.logical)?;
             framebuffers = create_framebuffers(
                 &swapchain.image_views,
@@ -251,7 +249,8 @@ impl Renderer for VulkanRenderer {
                 frame: 0,
                 in_flight_fences,
                 images_in_flight,
-                window,
+                window_width: window_size.0,
+                window_height: window_size.1,
 
                 debug_messenger,
             };
@@ -274,7 +273,8 @@ impl Renderer for VulkanRenderer {
                 frame: 0,
                 in_flight_fences,
                 images_in_flight,
-                window,
+                window_width: window_size.0,
+                window_height: window_size.1,
             };
         }
 
@@ -290,8 +290,10 @@ impl Renderer for VulkanRenderer {
         })
     }
 
-    fn on_resize(&mut self) -> anyhow::Result<()> {
+    fn on_resize(&mut self, window_size: (u32, u32)) -> anyhow::Result<()> {
         self.resized = true;
+        self.context.window_width = window_size.0;
+        self.context.window_height = window_size.1;
 
         Ok(())
     }
