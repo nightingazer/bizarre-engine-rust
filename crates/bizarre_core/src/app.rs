@@ -1,6 +1,6 @@
 use std::sync::mpsc::{channel, Receiver};
 
-use bizarre_logger::{core_debug, core_info, info};
+use bizarre_logger::{core_critical, core_debug, core_info, info};
 use bizarre_render::renderer::{create_renderer, Renderer, RendererBackend};
 use winit::platform::run_return::EventLoopExtRunReturn;
 
@@ -71,15 +71,30 @@ impl App {
 
             match event {
                 winit::event::Event::MainEventsCleared if !self.destroying => {
-                    self.renderer.render(&self.window).unwrap();
+                    match self.renderer.render(&self.window) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            core_critical!("Failed to render: {}", e);
+                            self.destroying = true;
+                            *control_flow = winit::event_loop::ControlFlow::Exit;
+                        }
+                    }
                 }
-                winit::event::Event::WindowEvent {
-                    event: winit::event::WindowEvent::CloseRequested,
-                    ..
-                } => {
-                    self.destroying = true;
-                    *control_flow = winit::event_loop::ControlFlow::Exit;
-                }
+                winit::event::Event::WindowEvent { event, .. } => match event {
+                    winit::event::WindowEvent::CloseRequested => {
+                        self.destroying = true;
+                        *control_flow = winit::event_loop::ControlFlow::Exit;
+                    }
+                    winit::event::WindowEvent::Resized(_) => match self.renderer.on_resize() {
+                        Ok(_) => (),
+                        Err(e) => {
+                            core_critical!("Failed to resize: {}", e);
+                            self.destroying = true;
+                            *control_flow = winit::event_loop::ControlFlow::Exit;
+                        }
+                    },
+                    _ => (),
+                },
                 _ => (),
             }
 

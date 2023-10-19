@@ -4,6 +4,7 @@ use vulkanalia::vk::{self, KhrSurfaceExtension, KhrSwapchainExtension};
 
 use super::devices::VulkanDevices;
 use super::queue_families::QueueFamilyIndices;
+use super::vulkan_renderer::VulkanRenderContext;
 
 pub struct SwapchainSupport {
     pub capabilities: vk::SurfaceCapabilitiesKHR,
@@ -40,14 +41,13 @@ impl VulkanSwapchain {
     pub unsafe fn new(
         window: &winit::window::Window,
         surface: vk::SurfaceKHR,
+        old_swapchain: vk::SwapchainKHR,
         instance: &Instance,
         vulkan_devices: &VulkanDevices,
     ) -> anyhow::Result<Self> {
-        let indices = QueueFamilyIndices::get(instance, vulkan_devices.physical, surface)?;
         let support = SwapchainSupport::get(instance, vulkan_devices.physical, surface)?;
 
         let format = get_swapchain_surface_format(&support.formats);
-        let present_mode = get_swapchain_present_mode(&support.present_modes);
         let extent = get_swapchain_extent(window, support.capabilities);
 
         let mut image_count = support.capabilities.min_image_count + 1;
@@ -62,34 +62,17 @@ impl VulkanSwapchain {
             image_count = support.capabilities.max_image_count;
         }
 
-        let mut queue_family_indices = vec![];
-        let image_sharing_mode = if indices.graphics != indices.present {
-            queue_family_indices.push(indices.graphics);
-            queue_family_indices.push(indices.present);
-            vk::SharingMode::CONCURRENT
-        } else {
-            vk::SharingMode::EXCLUSIVE
-        };
+        let handle = create_swapchain(
+            surface,
+            image_count,
+            &format,
+            &support,
+            extent,
+            vulkan_devices,
+            instance,
+            vk::SwapchainKHR::null(),
+        )?;
 
-        let create_info = vk::SwapchainCreateInfoKHR::builder()
-            .surface(surface)
-            .min_image_count(image_count)
-            .image_format(format.format)
-            .image_color_space(format.color_space)
-            .image_extent(extent)
-            .image_array_layers(1)
-            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
-            .image_sharing_mode(image_sharing_mode)
-            .queue_family_indices(&queue_family_indices)
-            .pre_transform(support.capabilities.current_transform)
-            .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-            .present_mode(present_mode)
-            .clipped(true)
-            .old_swapchain(vk::SwapchainKHR::null());
-
-        let handle = vulkan_devices
-            .logical
-            .create_swapchain_khr(&create_info, None)?;
         let images = vulkan_devices.logical.get_swapchain_images_khr(handle)?;
         let image_views = create_image_views(&vulkan_devices.logical, format.format, &images)?;
 
@@ -115,6 +98,49 @@ impl VulkanSwapchain {
 
         device.destroy_swapchain_khr(self.handle, None);
     }
+}
+
+unsafe fn create_swapchain(
+    surface: vk::SurfaceKHR,
+    image_count: u32,
+    format: &vk::SurfaceFormatKHR,
+    support: &SwapchainSupport,
+    extent: vk::Extent2D,
+    devices: &VulkanDevices,
+    instance: &Instance,
+    old_swapchain: vk::SwapchainKHR,
+) -> anyhow::Result<vk::SwapchainKHR> {
+    let indices = QueueFamilyIndices::get(instance, devices.physical, surface)?;
+    let mut queue_family_indices = vec![];
+    let image_sharing_mode = if indices.graphics != indices.present {
+        queue_family_indices.push(indices.graphics);
+        queue_family_indices.push(indices.present);
+        vk::SharingMode::CONCURRENT
+    } else {
+        vk::SharingMode::EXCLUSIVE
+    };
+
+    let present_mode = get_swapchain_present_mode(&support.present_modes);
+
+    let create_info = vk::SwapchainCreateInfoKHR::builder()
+        .surface(surface)
+        .min_image_count(image_count)
+        .image_format(format.format)
+        .image_color_space(format.color_space)
+        .image_extent(extent)
+        .image_array_layers(1)
+        .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+        .image_sharing_mode(image_sharing_mode)
+        .queue_family_indices(&queue_family_indices)
+        .pre_transform(support.capabilities.current_transform)
+        .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+        .present_mode(present_mode)
+        .clipped(true)
+        .old_swapchain(old_swapchain);
+
+    let handle = devices.logical.create_swapchain_khr(&create_info, None)?;
+
+    Ok(handle)
 }
 
 unsafe fn create_image_views(

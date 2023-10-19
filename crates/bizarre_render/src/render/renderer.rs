@@ -6,9 +6,10 @@ pub trait Renderer: Debug {
     fn new(window: &winit::window::Window) -> anyhow::Result<Self>
     where
         Self: Sized;
-    fn destroy(&self) -> anyhow::Result<()>;
+    fn destroy(&mut self) -> anyhow::Result<()>;
 
-    fn render(&self, window: &winit::window::Window) -> anyhow::Result<()>;
+    fn render(&mut self, window: &winit::window::Window) -> anyhow::Result<()>;
+    fn on_resize(&mut self) -> anyhow::Result<()>;
 }
 
 pub enum RendererBackend {
