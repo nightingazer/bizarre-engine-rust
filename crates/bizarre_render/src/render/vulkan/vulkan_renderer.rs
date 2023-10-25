@@ -3,7 +3,7 @@ use std::{default, sync::Arc};
 use anyhow::{anyhow, Result};
 use bizarre_logger::core_debug;
 use vulkano::{
-    buffer::Buffer,
+    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         RenderPassBeginInfo, SubpassContents,
@@ -17,8 +17,15 @@ use vulkano::{
     memory::allocator::{
         AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
     },
-    pipeline::graphics::viewport::Viewport,
-    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
+    pipeline::{
+        graphics::{
+            input_assembly::InputAssemblyState,
+            vertex_input::BuffersDefinition,
+            viewport::{Viewport, ViewportState},
+        },
+        GraphicsPipeline, Pipeline,
+    },
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     swapchain::{
         acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
         SwapchainPresentInfo,
@@ -30,6 +37,11 @@ use vulkano_win::{create_surface_from_handle_ref, create_surface_from_winit, VkS
 use winit::{event_loop::EventLoop, window::WindowBuilder};
 
 use crate::renderer::Renderer;
+
+use super::{
+    shaders::{fs, vs},
+    vertex::VertexData,
+};
 
 pub struct VulkanRenderer {
     instance: Arc<Instance>,
@@ -43,6 +55,7 @@ pub struct VulkanRenderer {
 
     framebuffers: Vec<Arc<Framebuffer>>,
     render_pass: Arc<RenderPass>,
+    pipeline: Arc<GraphicsPipeline>,
 
     previous_frame_end: Option<Box<dyn GpuFuture>>,
 
@@ -176,6 +189,18 @@ impl Renderer for VulkanRenderer {
 
         let previous_frame_end = Some(Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>);
 
+        let vs = vs::load(device.clone())?;
+        let fs = fs::load(device.clone())?;
+
+        let pipeline = GraphicsPipeline::start()
+            .vertex_input_state(BuffersDefinition::new().vertex::<VertexData>())
+            .vertex_shader(vs.entry_point("main").unwrap(), ())
+            .input_assembly_state(InputAssemblyState::new())
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+            .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .build(device.clone())?;
+
         Ok(Self {
             instance,
             device,
@@ -186,6 +211,7 @@ impl Renderer for VulkanRenderer {
             recreate_swapchain: false,
             surface_size: window.inner_size().into(),
 
+            pipeline,
             framebuffers,
             render_pass,
 
@@ -239,7 +265,7 @@ impl Renderer for VulkanRenderer {
             self.recreate_swapchain = true;
         }
 
-        let clear_values = vec![Some([0.0, 0.0, 1.0, 1.0].into())];
+        let clear_values = vec![Some([0.075, 0.05, 0.2, 1.0].into())];
 
         let mut cmd_buffer_builder = AutoCommandBufferBuilder::primary(
             &self.cmd_buffer_allocator,
@@ -247,6 +273,36 @@ impl Renderer for VulkanRenderer {
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
+
+        let vertices = [
+            VertexData {
+                position: [-0.5, 0.5, 0.0],
+                color: [1.0, 0.0, 0.0],
+            },
+            VertexData {
+                position: [0.5, 0.5, 0.0],
+                color: [0.0, 1.0, 0.0],
+            },
+            VertexData {
+                position: [0.0, -0.5, 0.0],
+                color: [0.0, 0.0, 1.0],
+            },
+        ];
+
+        let memory_allocator = StandardMemoryAllocator::new_default(self.device.clone());
+
+        let vertex_buffer = Buffer::from_iter(
+            &memory_allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::VERTEX_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
+            vertices,
+        )?;
 
         cmd_buffer_builder
             .begin_render_pass(
@@ -257,12 +313,14 @@ impl Renderer for VulkanRenderer {
                     )
                 },
                 SubpassContents::Inline,
-            )
-            .unwrap()
-            .end_render_pass()
-            .unwrap();
+            )?
+            .set_viewport(0, [self.viewport.clone()])
+            .bind_pipeline_graphics(self.pipeline.clone())
+            .bind_vertex_buffers(0, vertex_buffer.clone())
+            .draw(vertex_buffer.len() as u32, 1, 0, 0)?
+            .end_render_pass()?;
 
-        let cmd_buffer = cmd_buffer_builder.build().unwrap();
+        let cmd_buffer = cmd_buffer_builder.build()?;
 
         let future = self
             .previous_frame_end
