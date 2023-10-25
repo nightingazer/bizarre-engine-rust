@@ -1,12 +1,20 @@
-use std::{default, sync::Arc};
+use std::{
+    default,
+    sync::{Arc, Once},
+    time::Instant,
+};
 
 use anyhow::{anyhow, Result};
 use bizarre_logger::core_debug;
+use nalgebra_glm::{half_pi, look_at, perspective, pi, vec3};
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         RenderPassBeginInfo, SubpassContents,
+    },
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::{
         physical::{self, PhysicalDevice, PhysicalDeviceType},
@@ -23,7 +31,7 @@ use vulkano::{
             vertex_input::BuffersDefinition,
             viewport::{Viewport, ViewportState},
         },
-        GraphicsPipeline, Pipeline,
+        GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     swapchain::{
@@ -36,7 +44,7 @@ use vulkano::{
 use vulkano_win::{create_surface_from_handle_ref, create_surface_from_winit, VkSurfaceBuild};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
 
-use crate::renderer::Renderer;
+use crate::{render_math::ModelViewProjection, renderer::Renderer};
 
 use super::{
     shaders::{fs, vs},
@@ -274,18 +282,35 @@ impl Renderer for VulkanRenderer {
         )
         .unwrap();
 
+        static TIME_INIT: Once = Once::new();
+        static mut time: Option<Instant> = None;
+
+        TIME_INIT.call_once(|| unsafe {
+            time = Some(Instant::now());
+        });
+
+        let delta_time = unsafe { time.unwrap().elapsed().as_secs_f32() };
+
+        let swirling_speed = 2.5f32;
+
+        let delta_time = delta_time * swirling_speed;
+
+        let phase_1 = (delta_time.sin() + 0.5) / 2.0f32;
+        let phase_2 = ((delta_time + (2.0f32 * pi::<f32>() / 3.0f32)).sin() + 0.5f32) / 2.0f32;
+        let phase_3 = ((delta_time - (2.0f32 * pi::<f32>() / 3.0f32)).sin() + 0.5f32) / 2.0f32;
+
         let vertices = [
             VertexData {
                 position: [-0.5, 0.5, 0.0],
-                color: [1.0, 0.0, 0.0],
+                color: [phase_1, phase_2, phase_3],
             },
             VertexData {
                 position: [0.5, 0.5, 0.0],
-                color: [0.0, 1.0, 0.0],
+                color: [phase_3, phase_1, phase_2],
             },
             VertexData {
                 position: [0.0, -0.5, 0.0],
-                color: [0.0, 0.0, 1.0],
+                color: [phase_2, phase_3, phase_1],
             },
         ];
 
@@ -304,6 +329,47 @@ impl Renderer for VulkanRenderer {
             vertices,
         )?;
 
+        let mvp_data = {
+            let mut mvp = ModelViewProjection::new();
+
+            let aspect_ratio = self.surface_size[0] as f32 / self.surface_size[1] as f32;
+            mvp.projection = perspective(aspect_ratio, half_pi(), 0.01, 100.0);
+            mvp.view = look_at(
+                &vec3(0.0, 0.0, 1.0),
+                &vec3(0.0, 0.0, 0.0),
+                &vec3(0.0, 1.0, 0.0),
+            );
+
+            mvp
+
+            // crate::render::vulkan::shaders::vs::MVP_Data {
+            //     model: mvp.model.into(),
+            //     projection: mvp.projection.into(),
+            //     view: mvp.view.into(),
+            // }
+        };
+
+        let uniform_buffer = Buffer::from_data(
+            &memory_allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::UNIFORM_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
+            mvp_data,
+        )?;
+
+        let descriptor_set_allocator = StandardDescriptorSetAllocator::new(self.device.clone());
+        let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
+        let set = PersistentDescriptorSet::new(
+            &descriptor_set_allocator,
+            layout.clone(),
+            [WriteDescriptorSet::buffer(0, uniform_buffer)],
+        )?;
+
         cmd_buffer_builder
             .begin_render_pass(
                 RenderPassBeginInfo {
@@ -316,6 +382,12 @@ impl Renderer for VulkanRenderer {
             )?
             .set_viewport(0, [self.viewport.clone()])
             .bind_pipeline_graphics(self.pipeline.clone())
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.pipeline.layout().clone(),
+                0,
+                set.clone(),
+            )
             .bind_vertex_buffers(0, vertex_buffer.clone())
             .draw(vertex_buffer.len() as u32, 1, 0, 0)?
             .end_render_pass()?;

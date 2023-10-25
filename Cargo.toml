@@ -18,3 +18,4 @@ default-members = ["sandbox"]
 [workspace.dependencies]
 anyhow = "1.0.75"
 thiserror = "1.0.49"
+nalgebra-glm = {version = "0.18.0", features = ["convert-bytemuck"]}
