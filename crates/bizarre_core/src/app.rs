@@ -16,7 +16,6 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Debug)]
 pub struct App {
     title: Box<str>,
 
@@ -70,16 +69,19 @@ impl App {
             *control_flow = winit::event_loop::ControlFlow::Poll;
 
             match event {
-                winit::event::Event::MainEventsCleared if !self.destroying => {
+                winit::event::Event::RedrawEventsCleared if !self.destroying => {
                     self.renderer.render(&self.window).unwrap();
                 }
-                winit::event::Event::WindowEvent {
-                    event: winit::event::WindowEvent::CloseRequested,
-                    ..
-                } => {
-                    self.destroying = true;
-                    *control_flow = winit::event_loop::ControlFlow::Exit;
-                }
+                winit::event::Event::WindowEvent { event, .. } => match event {
+                    winit::event::WindowEvent::Resized(size) => {
+                        self.renderer.resize(size.into()).unwrap();
+                    }
+                    winit::event::WindowEvent::CloseRequested => {
+                        self.destroying = true;
+                        *control_flow = winit::event_loop::ControlFlow::Exit;
+                    }
+                    _ => (),
+                },
                 _ => (),
             }
 

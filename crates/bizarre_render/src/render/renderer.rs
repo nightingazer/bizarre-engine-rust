@@ -1,14 +1,18 @@
 use std::fmt::Debug;
 
+use anyhow::Result;
+
 use crate::vulkan::vulkan_renderer::VulkanRenderer;
 
-pub trait Renderer: Debug {
-    fn new(window: &winit::window::Window) -> anyhow::Result<Self>
+pub trait Renderer {
+    fn new(window: &winit::window::Window) -> Result<Self>
     where
         Self: Sized;
-    fn destroy(&self) -> anyhow::Result<()>;
+    fn destroy(&self) -> Result<()>;
 
-    fn render(&self, window: &winit::window::Window) -> anyhow::Result<()>;
+    fn render(&mut self, window: &winit::window::Window) -> Result<()>;
+
+    fn resize(&mut self, size: [u32; 2]) -> Result<()>;
 }
 
 pub enum RendererBackend {
@@ -21,7 +25,7 @@ pub enum RendererBackend {
 pub fn create_renderer(
     window: &winit::window::Window,
     backend: RendererBackend,
-) -> anyhow::Result<Box<dyn Renderer>> {
+) -> Result<Box<dyn Renderer>> {
     let renderer = match backend {
         RendererBackend::Vulkan => VulkanRenderer::new(window)?,
         RendererBackend::OpenGL => unimplemented!("OpenGL is not yet supported."),
