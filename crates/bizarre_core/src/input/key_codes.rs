@@ -46,7 +46,7 @@ macro_rules! key_codes {
 }
 
 key_codes! {
-    KeyboardKey : u32 {
+    KeyboardKey : u16 {
 
         Q = (L: 0x10, W: 0x00),
         W = (L: 0x11, W: 0x00),
@@ -94,11 +94,12 @@ key_codes! {
         CapsLock    = (L: 0x3a, W: 0x00),
         RShift      = (L: 0x36, W: 0x00),
         LShift      = (L: 0x2a, W: 0x00),
-        RControl    = (L: 0x64, W: 0x00),
-        LControl    = (L: 0x1d, W: 0x00),
+        RCtrl    = (L: 0x64, W: 0x00),
+        LCtrl    = (L: 0x1d, W: 0x00),
         RAlt        = (L: 0x61, W: 0x00),
         LAlt        = (L: 0x38, W: 0x00),
-        Super       = (L: 0x7d, W: 0x00),
+        LSuper      = (L: 0x7d, W: 0x00),
+        RSuper      = (L: 0x7e, W: 0x00),
 
         Insert      = (L: 0x6e, W: 0x00),
         Delete      = (L: 0x6f, W: 0x00),
