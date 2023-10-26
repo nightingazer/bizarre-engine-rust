@@ -4,6 +4,8 @@ use bizarre_logger::{core_debug, core_info, info};
 use bizarre_render::renderer::{create_renderer, Renderer, RendererBackend};
 use winit::platform::run_return::EventLoopExtRunReturn;
 
+use crate::event::key_codes::KeyboardKey;
+
 pub struct AppConfig {
     pub title: Box<str>,
 }
@@ -79,6 +81,12 @@ impl App {
                     winit::event::WindowEvent::CloseRequested => {
                         self.destroying = true;
                         *control_flow = winit::event_loop::ControlFlow::Exit;
+                    }
+                    winit::event::WindowEvent::KeyboardInput { input, .. } => {
+                        if (input.state == winit::event::ElementState::Pressed) {
+                            let keycode = KeyboardKey::from(input.scancode);
+                            core_debug!("Keyboard input: {}", keycode);
+                        }
                     }
                     _ => (),
                 },
