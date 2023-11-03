@@ -2,7 +2,7 @@ use bizarre_engine::{
     core::{input::key_codes::KeyboardKey, App},
     events::{
         event::Event,
-        system::{EventBus, SyncSystem, System},
+        observer::{EventBus, Observer, SyncObserver},
     },
     log::{app_logger_init, core_logger_init},
 };
@@ -14,19 +14,19 @@ struct SomeEvent {
 
 impl Event for SomeEvent {}
 
-struct SomeSystem {
+struct SomeObserver {
     pub count: u32,
 }
 
-impl SomeSystem {
+impl SomeObserver {
     fn handle_event(&mut self, event: &SomeEvent) {
         self.count += 1;
         println!("SomeSystem: {} (x{})", event.data, self.count);
     }
 }
 
-impl System for SomeSystem {
-    fn initialize(event_bus: &EventBus, system: SyncSystem<Self>) {
+impl Observer for SomeObserver {
+    fn initialize(event_bus: &EventBus, system: SyncObserver<Self>) {
         event_bus.subscribe(system, Self::handle_event);
     }
 }
@@ -44,7 +44,7 @@ fn main() {
         data: "Hello, world!".into(),
     };
 
-    let mut sys = SomeSystem { count: 0 };
+    let mut sys = SomeObserver { count: 0 };
 
     event_bus.push_event::<SomeEvent>(event.clone());
     event_bus.add_system(&mut sys);

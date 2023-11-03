@@ -5,33 +5,33 @@ use std::{
 
 use crate::{event::Event, storage::ErasedStorage};
 
-pub trait System {
-    fn initialize(event_bus: &EventBus, system: SyncSystem<Self>)
+pub trait Observer {
+    fn initialize(event_bus: &EventBus, system: SyncObserver<Self>)
     where
         Self: Sized;
 }
 
-pub trait Handler<E: Event, S: System> {
-    fn handle(&mut self, system: &mut S, event: &E);
+pub trait Handler<E: Event, O: Observer> {
+    fn handle(&mut self, observer: &mut O, event: &E);
 }
 
-impl<S: System, E: Event, F: Fn(&mut S, &E)> Handler<E, S> for F {
-    fn handle(&mut self, system: &mut S, event: &E) {
-        self(system, event)
+impl<O: Observer, E: Event, F: Fn(&mut O, &E)> Handler<E, O> for F {
+    fn handle(&mut self, observer: &mut O, event: &E) {
+        self(observer, event)
     }
 }
 
-struct InternalSystem<S: System> {
-    state: *mut S,
+struct InternalSystem<O: Observer> {
+    state: *mut O,
     handlers: ErasedStorage,
 }
 
-impl<S: System + 'static> InternalSystem<S> {
+impl<O: Observer + 'static> InternalSystem<O> {
     pub fn try_handle<E>(&mut self, event: &E)
     where
         E: Event + 'static,
     {
-        let handler = self.handlers.get_dyn_mut::<dyn Handler<E, S>>();
+        let handler = self.handlers.get_dyn_mut::<dyn Handler<E, O>>();
         let state = unsafe { &mut *self.state };
         match handler {
             Some(handler) => handler.handle(state, event),
@@ -39,20 +39,20 @@ impl<S: System + 'static> InternalSystem<S> {
         }
     }
 
-    pub fn subscribe<E>(&mut self, handler: impl Handler<E, S> + 'static)
+    pub fn subscribe<E>(&mut self, handler: impl Handler<E, O> + 'static)
     where
         E: Event + 'static,
     {
-        self.handlers.put_dyn::<dyn Handler<E, S>>(handler);
+        self.handlers.put_dyn::<dyn Handler<E, O>>(handler);
     }
 }
 
-pub struct SyncSystem<S: System>(Arc<Mutex<InternalSystem<S>>>);
+pub struct SyncObserver<S: Observer>(Arc<Mutex<InternalSystem<S>>>);
 
-impl<S: System> SyncSystem<S> {
-    pub fn new(system: &mut S) -> Self {
+impl<O: Observer> SyncObserver<O> {
+    pub fn new(observer: &mut O) -> Self {
         Self(Arc::new(Mutex::new(InternalSystem {
-            state: system as *mut S,
+            state: observer as *mut O,
             handlers: ErasedStorage::new(),
         })))
     }
@@ -62,9 +62,9 @@ pub trait Caller<E: Event + 'static> {
     fn call(&self, event: &E);
 }
 
-impl<S, E> Caller<E> for SyncSystem<S>
+impl<O, E> Caller<E> for SyncObserver<O>
 where
-    S: System + 'static,
+    O: Observer + 'static,
     E: Event + 'static,
 {
     fn call(&self, event: &E) {
@@ -80,9 +80,9 @@ impl<E> TypedEventBus<E>
 where
     E: Event + 'static,
 {
-    pub fn subscribe<S>(&mut self, system: SyncSystem<S>, handler: impl Handler<E, S> + 'static)
+    pub fn subscribe<O>(&mut self, system: SyncObserver<O>, handler: impl Handler<E, O> + 'static)
     where
-        S: System + 'static,
+        O: Observer + 'static,
     {
         system.0.lock().unwrap().subscribe(handler);
         self.listeners.push(Box::new(system));
@@ -166,18 +166,18 @@ impl EventBus {
         })
     }
 
-    pub fn subscribe<S, E>(&self, system: SyncSystem<S>, handler: impl Handler<E, S> + 'static)
+    pub fn subscribe<O, E>(&self, observer: SyncObserver<O>, handler: impl Handler<E, O> + 'static)
     where
-        S: System + 'static,
+        O: Observer + 'static,
         E: Event + 'static,
     {
         self.with_event_bus(|bus| {
-            bus.write().unwrap().subscribe(system, handler);
+            bus.write().unwrap().subscribe(observer, handler);
         })
     }
 
-    pub fn add_system<S: System + 'static>(&self, system: &mut S) {
-        let system = SyncSystem::new(system);
-        S::initialize(self, system);
+    pub fn add_system<S: Observer + 'static>(&self, observer: &mut S) {
+        let observer = SyncObserver::new(observer);
+        S::initialize(self, observer);
     }
 }
