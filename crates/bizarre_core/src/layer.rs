@@ -1,4 +1,4 @@
-use bizarre_events::system::EventBus;
+use bizarre_events::observer::EventBus;
 
 use crate::App;
 

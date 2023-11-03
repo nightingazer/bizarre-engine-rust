@@ -150,7 +150,6 @@ impl EventBus {
         match bus {
             Some(bus) => f(bus),
             None => {
-                drop(bus);
                 drop(lock);
                 self.with_new_event_bus(f);
             }

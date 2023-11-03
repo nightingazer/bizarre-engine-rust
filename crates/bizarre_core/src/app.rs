@@ -1,120 +1,87 @@
-use std::sync::mpsc::{channel, Receiver};
+use std::{
+    ptr::{null, null_mut},
+    sync::mpsc::{channel, Receiver},
+    time::Duration,
+};
 
+use bizarre_events::observer::{EventBus, Observer};
 use bizarre_logger::{core_debug, core_info, info};
 use bizarre_render::renderer::{create_renderer, Renderer, RendererBackend};
+use specs::WorldExt;
 use winit::platform::run_return::EventLoopExtRunReturn;
 
-use crate::input::key_codes::KeyboardKey;
+use crate::{app_events::AppCloseRequestedEvent, input::key_codes::KeyboardKey, layer::Layer};
 
-pub struct AppConfig {
-    pub title: Box<str>,
+pub struct App {
+    name: Box<str>,
+    event_bus: EventBus,
+    world: specs::World,
+    layers: Vec<Box<dyn Layer>>,
+    observer: AppObserver,
+    running: bool,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            title: "Bizarre Engine".into(),
-        }
+struct AppObserver {
+    pub running: bool,
+}
+
+impl AppObserver {
+    fn handle_close_request(&mut self, _: &AppCloseRequestedEvent) {
+        core_info!("AppObserver: Got AppCloseRequestedEvent!");
+        self.running = false;
     }
 }
 
-pub struct App {
-    title: Box<str>,
-
-    window: winit::window::Window,
-    renderer: Box<dyn Renderer>,
-    event_loop: winit::event_loop::EventLoop<()>,
-
-    destroying: bool,
-
-    termination_rx: Receiver<()>,
-}
-
-impl Drop for App {
-    fn drop(&mut self) {
-        info!("Destroying the \"{}\" application", self.title);
-        self.destroy().unwrap();
+impl Observer for AppObserver {
+    fn initialize(event_bus: &EventBus, system: bizarre_events::observer::SyncObserver<Self>) {
+        event_bus.subscribe(system, Self::handle_close_request);
     }
 }
 
 impl App {
-    pub fn new(config: AppConfig) -> Self {
-        let event_loop = winit::event_loop::EventLoop::new();
+    pub fn new(name: &str) -> Self {
+        let mut app = Self {
+            name: name.into(),
+            event_bus: EventBus::new(),
+            world: specs::World::new(),
+            layers: Vec::new(),
+            observer: AppObserver { running: true },
+            running: true,
+        };
 
-        let window = winit::window::WindowBuilder::new()
-            .with_title(config.title.clone())
-            .build(&event_loop)
-            .expect("Failed to create window");
-
-        let renderer =
-            create_renderer(&window, RendererBackend::Vulkan).expect("Failed to create renderer");
-
-        let (tx, rx) = channel::<()>();
-
-        ctrlc::set_handler(move || tx.send(()).expect("Failed to send termination signal"))
-            .expect("Failed to set Ctrl-C handler");
-
-        Self {
-            title: config.title,
-            event_loop,
-            window,
-            renderer,
-            destroying: false,
-            termination_rx: rx,
-        }
+        app
     }
 
     pub fn run<'a>(&mut self) {
-        core_info!("Running the \"{}\" application", self.title);
+        core_info!("Running the \"{}\" application", self.name);
 
-        self.event_loop.run_return(|event, _, control_flow| {
-            *control_flow = winit::event_loop::ControlFlow::Poll;
+        self.event_bus.add_system(&mut self.observer);
 
-            match event {
-                winit::event::Event::RedrawEventsCleared if !self.destroying => {
-                    self.renderer.render(&self.window).unwrap();
-                }
-                winit::event::Event::WindowEvent { event, .. } => match event {
-                    winit::event::WindowEvent::Resized(size) => {
-                        self.renderer.resize(size.into()).unwrap();
-                    }
-                    winit::event::WindowEvent::CloseRequested => {
-                        self.destroying = true;
-                        *control_flow = winit::event_loop::ControlFlow::Exit;
-                    }
-                    winit::event::WindowEvent::KeyboardInput { input, .. } => {
-                        if input.state == winit::event::ElementState::Pressed {
-                            let keycode = KeyboardKey::from(input.scancode as u16);
-                            core_debug!("Keyboard input: {}", keycode);
-                        }
-                    }
-                    _ => (),
-                },
-                _ => (),
-            }
+        let (tx, rx) = channel();
 
-            if self.termination_rx.try_recv().is_ok() {
-                self.destroying = true;
-                *control_flow = winit::event_loop::ControlFlow::Exit;
-            }
+        ctrlc::set_handler(move || {
+            tx.send(AppCloseRequestedEvent {});
         });
-    }
 
-    pub fn require_destroy(&mut self) {
-        self.destroying = true;
+        while self.observer.running {
+            for layer in self.layers.iter_mut() {
+                layer.on_update(&self.event_bus, &self.world);
+            }
+
+            if let Ok(event) = rx.try_recv() {
+                self.event_bus.push_event(event);
+            }
+        }
     }
 
     fn destroy(&mut self) -> anyhow::Result<()> {
-        info!("Destroying");
-
-        self.renderer.destroy()?;
+        core_info!("Destroying \"{}\" application", self.name);
 
         Ok(())
     }
-}
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new(AppConfig::default())
+    pub fn add_layer<L: Layer + 'static>(&mut self, mut layer: L) {
+        layer.on_attach(&self.event_bus, &self.world);
+        self.layers.push(Box::new(layer));
     }
 }
