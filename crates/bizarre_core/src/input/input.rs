@@ -1,5 +1,9 @@
+use bizarre_events::observer::EventBus;
+
 use crate::{
-    input::input_event::KeyboardModifiers, input::key_codes::KeyboardKey, traits::Updatable,
+    input::input_event::KeyboardModifiers,
+    input::{input_event::InputEvent, key_codes::KeyboardKey},
+    traits::Updatable,
 };
 
 pub struct InputHandler {
@@ -21,7 +25,12 @@ impl InputHandler {
         }
     }
 
-    pub fn process_keyboard(&mut self, keycode: u16, pressed: bool) -> anyhow::Result<()> {
+    pub fn process_keyboard(
+        &mut self,
+        keycode: u16,
+        pressed: bool,
+        event_bus: &EventBus,
+    ) -> anyhow::Result<()> {
         let key = KeyboardKey::from(keycode);
         macro_rules! process_modifiers {
             {$($key:ident => $modifier:ident),+,} => {
@@ -53,12 +62,24 @@ impl InputHandler {
 
         self.keyboard_state[keycode as usize] = pressed;
 
+        let event = if pressed {
+            InputEvent::KeyboardPressed {
+                key,
+                modifiers: self.keyboard_modifiers.clone(),
+            }
+        } else {
+            InputEvent::KeyboardReleased {
+                key,
+                modifiers: self.keyboard_modifiers.clone(),
+            }
+        };
+
+        event_bus.push_event(event);
+
         Ok(())
     }
-}
 
-impl Updatable for InputHandler {
-    fn update(&mut self, delta_time: f32) -> anyhow::Result<()> {
+    pub fn update(&mut self) -> anyhow::Result<()> {
         self.mouse_wheel_delta = [0.0, 0.0];
         self.mouse_previous_position = [self.mouse_position[0], self.mouse_position[1]];
         Ok(())

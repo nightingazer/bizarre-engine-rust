@@ -1,8 +1,10 @@
 use bitflags::bitflags;
+use bizarre_events::event::Event;
 
 use super::key_codes::KeyboardKey;
 
 bitflags! {
+    #[derive(Clone)]
     pub struct KeyboardModifiers : u8 {
         const NONE = 0b00000000;
 
@@ -47,3 +49,5 @@ pub enum InputEvent {
         y: f32,
     },
 }
+
+impl Event for InputEvent {}

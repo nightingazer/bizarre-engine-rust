@@ -6,6 +6,7 @@ use bizarre_engine::{
         event::Event,
         observer::{EventBus, Observer, SyncObserver},
     },
+    layers::{input_layer::InputLayer, visual_layer::VisualLayer},
     log::{app_logger_init, core_logger_init, info},
 };
 
@@ -14,11 +15,11 @@ struct KillerLayer {
 }
 
 impl Layer for KillerLayer {
-    fn on_attach(&mut self, event_bus: &EventBus, world: &specs::World) {
+    fn on_attach(&mut self, event_bus: &EventBus, world: &mut specs::World) {
         info!("Attached KillerLayer!");
     }
 
-    fn on_update(&mut self, event_bus: &EventBus, world: &specs::World) {
+    fn on_update(&mut self, event_bus: &EventBus, world: &mut specs::World) {
         self.count += 1;
 
         if self.count <= 10 {
@@ -36,6 +37,7 @@ fn main() {
     app_logger_init(None).expect("Failed to init app logger");
 
     let mut app = App::new("Bizarre Engine");
-    app.add_layer(KillerLayer { count: 0 });
+    app.add_layer(InputLayer::new());
+    app.add_layer(VisualLayer::new());
     app.run();
 }

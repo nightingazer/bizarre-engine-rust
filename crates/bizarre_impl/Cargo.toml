@@ -10,3 +10,4 @@ edition = "2021"
 "bizarre_core" = { path = "../bizarre_core" }
 "bizarre_render" = { path = "../bizarre_render" }
 "bizarre_events" = { path = "../bizarre_events" }
+"bizarre_layers" = { path = "../bizarre_layers" }

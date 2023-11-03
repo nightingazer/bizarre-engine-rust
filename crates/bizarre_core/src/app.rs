@@ -8,7 +8,6 @@ use bizarre_events::observer::{EventBus, Observer};
 use bizarre_logger::{core_debug, core_info, info};
 use bizarre_render::renderer::{create_renderer, Renderer, RendererBackend};
 use specs::WorldExt;
-use winit::platform::run_return::EventLoopExtRunReturn;
 
 use crate::{app_events::AppCloseRequestedEvent, input::key_codes::KeyboardKey, layer::Layer};
 
@@ -65,7 +64,7 @@ impl App {
 
         while self.observer.running {
             for layer in self.layers.iter_mut() {
-                layer.on_update(&self.event_bus, &self.world);
+                layer.on_update(&self.event_bus, &mut self.world);
             }
 
             if let Ok(event) = rx.try_recv() {
@@ -81,7 +80,7 @@ impl App {
     }
 
     pub fn add_layer<L: Layer + 'static>(&mut self, mut layer: L) {
-        layer.on_attach(&self.event_bus, &self.world);
+        layer.on_attach(&self.event_bus, &mut self.world);
         self.layers.push(Box::new(layer));
     }
 }
