@@ -22,7 +22,7 @@ impl<S: System, E: Event, F: Fn(&mut S, &E)> Handler<E, S> for F {
 }
 
 struct InternalSystem<S: System> {
-    state: S,
+    state: *mut S,
     handlers: ErasedStorage,
 }
 
@@ -32,8 +32,9 @@ impl<S: System + 'static> InternalSystem<S> {
         E: Event + 'static,
     {
         let handler = self.handlers.get_dyn_mut::<dyn Handler<E, S>>();
+        let state = unsafe { &mut *self.state };
         match handler {
-            Some(handler) => handler.handle(&mut self.state, event),
+            Some(handler) => handler.handle(state, event),
             None => {}
         }
     }
@@ -49,9 +50,9 @@ impl<S: System + 'static> InternalSystem<S> {
 pub struct SyncSystem<S: System>(Arc<Mutex<InternalSystem<S>>>);
 
 impl<S: System> SyncSystem<S> {
-    pub fn new(system: S) -> Self {
+    pub fn new(system: &mut S) -> Self {
         Self(Arc::new(Mutex::new(InternalSystem {
-            state: system,
+            state: system as *mut S,
             handlers: ErasedStorage::new(),
         })))
     }
@@ -175,7 +176,7 @@ impl EventBus {
         })
     }
 
-    pub fn add_system<S: System + 'static>(&self, system: S) {
+    pub fn add_system<S: System + 'static>(&self, system: &mut S) {
         let system = SyncSystem::new(system);
         S::initialize(self, system);
     }

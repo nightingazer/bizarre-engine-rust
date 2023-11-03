@@ -44,11 +44,10 @@ fn main() {
         data: "Hello, world!".into(),
     };
 
-    let sys = SomeSystem { count: 0 };
+    let mut sys = SomeSystem { count: 0 };
 
     event_bus.push_event::<SomeEvent>(event.clone());
-    event_bus.add_system(SomeSystem { count: 0 });
+    event_bus.add_system(&mut sys);
     event_bus.push_event::<SomeEvent>(event.clone());
-    event_bus.add_system(SomeSystem { count: 100 });
     event_bus.push_event::<SomeEvent>(event.clone());
 }
