@@ -6,12 +6,17 @@ use crate::{
     traits::Updatable,
 };
 
+use super::mouse_button::MouseButton;
+
 pub struct InputHandler {
     mouse_previous_position: [f32; 2],
     mouse_position: [f32; 2],
     mouse_wheel_delta: [f32; 2],
     keyboard_modifiers: KeyboardModifiers,
     keyboard_state: [bool; u16::MAX as usize],
+    previous_keyboard_state: [bool; u16::MAX as usize],
+    mouse_button_state: [bool; u8::MAX as usize],
+    previous_mouse_button_state: [bool; u8::MAX as usize],
 }
 
 impl InputHandler {
@@ -22,6 +27,9 @@ impl InputHandler {
             mouse_wheel_delta: [0.0, 0.0],
             keyboard_modifiers: KeyboardModifiers::NONE,
             keyboard_state: [false; u16::MAX as usize],
+            previous_keyboard_state: [false; u16::MAX as usize],
+            mouse_button_state: [false; u8::MAX as usize],
+            previous_mouse_button_state: [false; u8::MAX as usize],
         }
     }
 
@@ -79,9 +87,69 @@ impl InputHandler {
         Ok(())
     }
 
-    pub fn update(&mut self) -> anyhow::Result<()> {
+    pub fn process_mouse_move(
+        &mut self,
+        position: [f32; 2],
+        event_bus: &EventBus,
+    ) -> anyhow::Result<()> {
+        self.mouse_position = position;
+
+        let event = InputEvent::MouseMoved {
+            x: self.mouse_position[0],
+            y: self.mouse_position[1],
+        };
+
+        event_bus.push_event(event);
+
+        Ok(())
+    }
+
+    pub fn process_mouse_button(
+        &mut self,
+        button: MouseButton,
+        pressed: bool,
+        event_bus: &EventBus,
+    ) -> anyhow::Result<()> {
+        let index: u8 = button.into();
+        self.mouse_button_state[index as usize] = pressed;
+
+        let event = if pressed {
+            InputEvent::MousePressed {
+                button,
+                modifiers: self.keyboard_modifiers.clone(),
+            }
+        } else {
+            InputEvent::MouseReleased {
+                button,
+                modifiers: self.keyboard_modifiers.clone(),
+            }
+        };
+
+        event_bus.push_event(event);
+
+        Ok(())
+    }
+
+    pub fn process_mouse_scroll(&mut self, delta: [f32; 2]) -> anyhow::Result<()> {
+        self.mouse_wheel_delta[0] += delta[0];
+        self.mouse_wheel_delta[1] += delta[1];
+
+        Ok(())
+    }
+
+    pub fn update(&mut self, event_bus: &EventBus) -> anyhow::Result<()> {
+        if self.mouse_wheel_delta[0] != 0.0 || self.mouse_wheel_delta[1] != 0.0 {
+            let event = InputEvent::MouseScrolled {
+                x: self.mouse_wheel_delta[0],
+                y: self.mouse_wheel_delta[1],
+            };
+
+            event_bus.push_event(event);
+        }
         self.mouse_wheel_delta = [0.0, 0.0];
         self.mouse_previous_position = [self.mouse_position[0], self.mouse_position[1]];
+        self.previous_keyboard_state = self.keyboard_state.clone();
+        self.previous_mouse_button_state = self.mouse_button_state.clone();
         Ok(())
     }
 }

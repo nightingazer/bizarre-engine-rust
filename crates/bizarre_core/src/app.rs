@@ -1,4 +1,5 @@
 use std::{
+    boxed,
     ptr::{null, null_mut},
     sync::mpsc::{channel, Receiver},
     time::Duration,
@@ -80,7 +81,8 @@ impl App {
     }
 
     pub fn add_layer<L: Layer + 'static>(&mut self, mut layer: L) {
-        layer.on_attach(&self.event_bus, &mut self.world);
-        self.layers.push(Box::new(layer));
+        let mut boxed = Box::new(layer);
+        boxed.on_attach(&self.event_bus, &mut self.world);
+        self.layers.push(boxed);
     }
 }

@@ -1,10 +1,10 @@
 use bitflags::bitflags;
 use bizarre_events::event::Event;
 
-use super::key_codes::KeyboardKey;
+use super::{key_codes::KeyboardKey, mouse_button::MouseButton};
 
 bitflags! {
-    #[derive(Clone)]
+    #[derive(Debug, Clone, Copy)]
     pub struct KeyboardModifiers : u8 {
         const NONE = 0b00000000;
 
@@ -25,6 +25,7 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum InputEvent {
     KeyboardPressed {
         key: KeyboardKey,
@@ -35,10 +36,12 @@ pub enum InputEvent {
         modifiers: KeyboardModifiers,
     },
     MousePressed {
-        button: u8,
+        button: MouseButton,
+        modifiers: KeyboardModifiers,
     },
     MouseReleased {
-        button: u8,
+        button: MouseButton,
+        modifiers: KeyboardModifiers,
     },
     MouseMoved {
         x: f32,

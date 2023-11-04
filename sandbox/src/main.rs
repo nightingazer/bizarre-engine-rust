@@ -1,6 +1,9 @@
 use bizarre_engine::{
     core::{
-        app_events::AppCloseRequestedEvent, input::key_codes::KeyboardKey, layer::Layer, specs, App,
+        app_events::AppCloseRequestedEvent,
+        input::{input_event::InputEvent, key_codes::KeyboardKey},
+        layer::Layer,
+        specs, App,
     },
     events::{
         event::Event,
@@ -10,25 +13,23 @@ use bizarre_engine::{
     log::{app_logger_init, core_logger_init, info},
 };
 
-struct KillerLayer {
-    count: i32,
+struct InputObserverLayer {}
+
+impl InputObserverLayer {
+    fn handle_input_event(&mut self, event: &InputEvent) {
+        info!("InputObserverLayer: Got InputEvent: {:?}", event);
+    }
 }
 
-impl Layer for KillerLayer {
-    fn on_attach(&mut self, event_bus: &EventBus, world: &mut specs::World) {
-        info!("Attached KillerLayer!");
+impl Observer for InputObserverLayer {
+    fn initialize(event_bus: &EventBus, system: SyncObserver<Self>) {
+        event_bus.subscribe(system, Self::handle_input_event);
     }
+}
 
-    fn on_update(&mut self, event_bus: &EventBus, world: &mut specs::World) {
-        self.count += 1;
-
-        if self.count <= 10 {
-            info!("KillerLayer: {}", self.count);
-        }
-
-        if self.count > 10 {
-            event_bus.push_event(AppCloseRequestedEvent {});
-        }
+impl Layer for InputObserverLayer {
+    fn on_attach(&mut self, event_bus: &EventBus, _: &mut specs::World) {
+        event_bus.add_system(self);
     }
 }
 
@@ -39,5 +40,6 @@ fn main() {
     let mut app = App::new("Bizarre Engine");
     app.add_layer(InputLayer::new());
     app.add_layer(VisualLayer::new());
+    app.add_layer(InputObserverLayer {});
     app.run();
 }

@@ -16,6 +16,6 @@ impl Layer for InputLayer {
 
     fn on_update(&mut self, event_bus: &EventBus, world: &mut bizarre_core::specs::World) {
         let mut input_handler = world.write_resource::<InputHandler>();
-        input_handler.update();
+        input_handler.update(event_bus);
     }
 }
