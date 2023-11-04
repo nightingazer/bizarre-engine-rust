@@ -18,3 +18,15 @@ impl ModelViewProjection {
         }
     }
 }
+
+#[derive(Default, Debug, Clone)]
+pub struct AmbientLight {
+    pub color: [f32; 3],
+    pub intensity: f32,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct DirectionalLight {
+    position: [f32; 3],
+    color: [f32; 3],
+}

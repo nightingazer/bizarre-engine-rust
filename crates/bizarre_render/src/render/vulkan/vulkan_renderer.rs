@@ -51,7 +51,7 @@ use crate::{render_math::ModelViewProjection, renderer::Renderer};
 
 use super::{
     shaders::{fs, vs},
-    vertex::VertexData,
+    vertex::{VertexData, CUBE_VERTICES},
 };
 
 pub struct VulkanRenderer {
@@ -303,49 +303,7 @@ impl Renderer for VulkanRenderer {
         )
         .unwrap();
 
-        static TIME_INIT: Once = Once::new();
-        static mut time: Option<Instant> = None;
-
-        TIME_INIT.call_once(|| unsafe {
-            time = Some(Instant::now());
-        });
-
-        let delta_time = unsafe { time.unwrap().elapsed().as_secs_f32() };
-
-        let swirling_speed = 2.5f32;
-
-        let delta_time = delta_time * swirling_speed;
-
-        let phase_1 = (delta_time.sin() + 0.5) / 2.0f32;
-        let phase_2 = ((delta_time + (2.0f32 * pi::<f32>() / 3.0f32)).sin() + 0.5f32) / 2.0f32;
-        let phase_3 = ((delta_time - (2.0f32 * pi::<f32>() / 3.0f32)).sin() + 0.5f32) / 2.0f32;
-
-        let vertices = [
-            VertexData {
-                position: [-0.5, 0.5, 0.0],
-                color: [phase_1, phase_2, phase_3],
-            },
-            VertexData {
-                position: [0.5, 0.5, 0.0],
-                color: [phase_3, phase_1, phase_2],
-            },
-            VertexData {
-                position: [0.0, -0.5, 0.0],
-                color: [phase_2, phase_3, phase_1],
-            },
-            VertexData {
-                position: [-0.5, -0.5, -0.01],
-                color: [0.0; 3],
-            },
-            VertexData {
-                position: [0.0, 0.5, -0.01],
-                color: [0.0; 3],
-            },
-            VertexData {
-                position: [0.5, -0.5, -0.01],
-                color: [0.0; 3],
-            },
-        ];
+        let vertices = CUBE_VERTICES;
 
         let memory_allocator = StandardMemoryAllocator::new_default(self.device.clone());
 
@@ -368,21 +326,19 @@ impl Renderer for VulkanRenderer {
             let aspect_ratio = self.surface_size[0] as f32 / self.surface_size[1] as f32;
             mvp.projection = perspective(aspect_ratio, half_pi(), 0.01, 100.0);
             mvp.view = look_at(
-                &vec3(0.0, 0.0, 1.0),
+                &vec3(2.0, -2.0, 2.5),
                 &vec3(0.0, 0.0, 0.0),
                 &vec3(0.0, 1.0, 0.0),
             );
 
-            mvp
-
-            // crate::render::vulkan::shaders::vs::MVP_Data {
-            //     model: mvp.model.into(),
-            //     projection: mvp.projection.into(),
-            //     view: mvp.view.into(),
-            // }
+            crate::render::vulkan::shaders::vs::MVP_Data {
+                model: mvp.model.into(),
+                projection: mvp.projection.into(),
+                view: mvp.view.into(),
+            }
         };
 
-        let uniform_buffer = Buffer::from_data(
+        let mvp_uniform = Buffer::from_data(
             &memory_allocator,
             BufferCreateInfo {
                 usage: BufferUsage::UNIFORM_BUFFER,
@@ -395,12 +351,52 @@ impl Renderer for VulkanRenderer {
             mvp_data,
         )?;
 
+        let ambient_light = crate::render::vulkan::shaders::fs::Ambient_Data {
+            ambient_color: [0.3, 0.3, 1.0],
+            ambient_intensity: 0.5,
+        };
+
+        let ambient_uniform = Buffer::from_data(
+            &memory_allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::UNIFORM_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
+            ambient_light,
+        )?;
+
+        let directional_light = crate::render::vulkan::shaders::fs::Directional_Data {
+            color: [1.0, 1.0, 1.0].into(),
+            position: [-4.0, -4.0, 5.0].into(),
+        };
+
+        let directional_uniform = Buffer::from_data(
+            &memory_allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::UNIFORM_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
+            directional_light,
+        )?;
+
         let descriptor_set_allocator = StandardDescriptorSetAllocator::new(self.device.clone());
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
         let set = PersistentDescriptorSet::new(
             &descriptor_set_allocator,
             layout.clone(),
-            [WriteDescriptorSet::buffer(0, uniform_buffer)],
+            [
+                WriteDescriptorSet::buffer(0, mvp_uniform),
+                WriteDescriptorSet::buffer(1, ambient_uniform),
+                WriteDescriptorSet::buffer(2, directional_uniform),
+            ],
         )?;
 
         cmd_buffer_builder
