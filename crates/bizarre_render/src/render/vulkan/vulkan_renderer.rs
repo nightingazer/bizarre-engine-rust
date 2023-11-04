@@ -20,14 +20,17 @@ use vulkano::{
         physical::{self, PhysicalDevice, PhysicalDeviceType},
         Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags,
     },
-    image::{view::ImageView, ImageAccess, SwapchainImage},
+    format::Format,
+    image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
     instance::{Instance, InstanceCreateInfo},
     memory::allocator::{
         AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
     },
     pipeline::{
         graphics::{
+            depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
+            rasterization::{CullMode, RasterizationState},
             vertex_input::BuffersDefinition,
             viewport::{Viewport, ViewportState},
         },
@@ -178,11 +181,17 @@ impl Renderer for VulkanRenderer {
                     store: Store,
                     format: swapchain.image_format(),
                     samples: 1,
+                },
+                depth: {
+                    load: Clear,
+                    store: DontCare,
+                    format: Format::D16_UNORM,
+                    samples: 1,
                 }
             },
             pass: {
                 color: [color],
-                depth_stencil: {}
+                depth_stencil: {depth}
             }
         )?;
 
@@ -192,8 +201,11 @@ impl Renderer for VulkanRenderer {
             depth_range: 0.0..1.0,
         };
 
+        let allocator: StandardMemoryAllocator =
+            StandardMemoryAllocator::new_default(device.clone());
+
         let framebuffers =
-            window_size_dependent_setup(&images, render_pass.clone(), &mut viewport)?;
+            window_size_dependent_setup(&images, render_pass.clone(), &mut viewport, &allocator)?;
 
         let previous_frame_end = Some(Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>);
 
@@ -206,6 +218,8 @@ impl Renderer for VulkanRenderer {
             .input_assembly_state(InputAssemblyState::new())
             .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
             .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .depth_stencil_state(DepthStencilState::simple_depth_test())
+            .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device.clone())?;
 
@@ -254,10 +268,13 @@ impl Renderer for VulkanRenderer {
             };
 
             self.swapchain = new_swapchain;
+
+            let allocator = StandardMemoryAllocator::new_default(self.device.clone());
             self.framebuffers = window_size_dependent_setup(
                 &new_images,
                 self.render_pass.clone(),
                 &mut self.viewport,
+                &allocator,
             )?;
             self.recreate_swapchain = false;
         }
@@ -277,7 +294,7 @@ impl Renderer for VulkanRenderer {
             return self.render();
         }
 
-        let clear_values = vec![Some([0.075, 0.05, 0.2, 1.0].into())];
+        let clear_values = vec![Some([0.075, 0.05, 0.2, 1.0].into()), Some(1.0.into())];
 
         let mut cmd_buffer_builder = AutoCommandBufferBuilder::primary(
             &self.cmd_buffer_allocator,
@@ -315,6 +332,18 @@ impl Renderer for VulkanRenderer {
             VertexData {
                 position: [0.0, -0.5, 0.0],
                 color: [phase_2, phase_3, phase_1],
+            },
+            VertexData {
+                position: [-0.5, -0.5, -0.01],
+                color: [0.0; 3],
+            },
+            VertexData {
+                position: [0.0, 0.5, -0.01],
+                color: [0.0; 3],
+            },
+            VertexData {
+                position: [0.5, -0.5, -0.01],
+                color: [0.0; 3],
             },
         ];
 
@@ -436,9 +465,15 @@ fn window_size_dependent_setup(
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
+    allocator: &StandardMemoryAllocator,
 ) -> Result<Vec<Arc<Framebuffer>>> {
-    let dimesions = images[0].dimensions().width_height();
-    viewport.dimensions = [dimesions[0] as f32, dimesions[1] as f32];
+    let dimensions = images[0].dimensions().width_height();
+    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+    let depth_buffer = ImageView::new_default(AttachmentImage::transient(
+        allocator,
+        dimensions,
+        Format::D16_UNORM,
+    )?)?;
 
     images
         .iter()
@@ -447,7 +482,7 @@ fn window_size_dependent_setup(
             let r = Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {
-                    attachments: vec![view],
+                    attachments: vec![view, depth_buffer.clone()],
                     ..Default::default()
                 },
             )?;
