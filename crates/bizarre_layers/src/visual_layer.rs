@@ -49,7 +49,7 @@ impl Layer for VisualLayer {
             .run_return(|event, _, control_flow| match event {
                 winit::event::Event::MainEventsCleared => {
                     *control_flow = winit::event_loop::ControlFlow::Exit;
-                    self.renderer.render(&self.window);
+                    self.renderer.render();
                 }
                 winit::event::Event::WindowEvent { event, .. } => match event {
                     winit::event::WindowEvent::CloseRequested => {

@@ -2,6 +2,7 @@ pub mod app;
 pub mod app_events;
 pub mod input;
 pub mod layer;
+pub mod timing;
 pub mod traits;
 
 pub use app::*;

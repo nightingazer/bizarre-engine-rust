@@ -233,7 +233,7 @@ impl Renderer for VulkanRenderer {
         Ok(())
     }
 
-    fn render(&mut self, window: &winit::window::Window) -> Result<()> {
+    fn render(&mut self) -> Result<()> {
         self.previous_frame_end
             .as_mut()
             .take()
@@ -246,7 +246,10 @@ impl Renderer for VulkanRenderer {
                 ..self.swapchain.create_info()
             }) {
                 Ok(r) => r,
-                Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return Ok(()),
+                Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => {
+                    core_debug!("Failed to recreate swapchain: Image extent not supported");
+                    return Ok(());
+                }
                 Err(e) => return Err(anyhow!("Failed to recreate swapchain: {}", e)),
             };
 
@@ -264,13 +267,14 @@ impl Renderer for VulkanRenderer {
                 Ok(r) => r,
                 Err(AcquireError::OutOfDate) => {
                     self.recreate_swapchain = true;
-                    return Ok(());
+                    return self.render();
                 }
                 Err(e) => return Err(anyhow!("Failed to acquire next image: {}", e)),
             };
 
         if suboptimal {
             self.recreate_swapchain = true;
+            return self.render();
         }
 
         let clear_values = vec![Some([0.075, 0.05, 0.2, 1.0].into())];

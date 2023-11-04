@@ -2,7 +2,7 @@ use std::{
     boxed,
     ptr::{null, null_mut},
     sync::mpsc::{channel, Receiver},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bizarre_events::observer::{EventBus, Observer};
@@ -10,7 +10,12 @@ use bizarre_logger::{core_debug, core_info, info};
 use bizarre_render::renderer::{create_renderer, Renderer, RendererBackend};
 use specs::WorldExt;
 
-use crate::{app_events::AppCloseRequestedEvent, input::key_codes::KeyboardKey, layer::Layer};
+use crate::{
+    app_events::AppCloseRequestedEvent,
+    input::key_codes::KeyboardKey,
+    layer::Layer,
+    timing::{DeltaTime, RunningTime},
+};
 
 pub struct App {
     name: Box<str>,
@@ -63,13 +68,33 @@ impl App {
             tx.send(AppCloseRequestedEvent {});
         });
 
+        let mut frame_start = Instant::now();
+
+        self.world.insert(DeltaTime(0.0));
+        self.world.insert(RunningTime(0.0));
+
         while self.observer.running {
+            frame_start = Instant::now();
+
             for layer in self.layers.iter_mut() {
                 layer.on_update(&self.event_bus, &mut self.world);
             }
 
             if let Ok(event) = rx.try_recv() {
                 self.event_bus.push_event(event);
+            }
+
+            let mut running_time = self.world.write_resource::<RunningTime>();
+            let mut delta_time_res = self.world.write_resource::<DeltaTime>();
+
+            let frame_duration = Instant::now() - frame_start;
+            let sleep_duration = Duration::from_millis(16).saturating_sub(frame_duration);
+            let delta_time = DeltaTime(frame_duration.as_secs_f32() + sleep_duration.as_secs_f32());
+            *running_time = RunningTime(running_time.0 + delta_time.0);
+            *delta_time_res = delta_time;
+
+            if sleep_duration > Duration::from_millis(0) {
+                std::thread::sleep(sleep_duration);
             }
         }
     }

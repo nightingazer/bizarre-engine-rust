@@ -10,7 +10,7 @@ pub trait Renderer {
         Self: Sized;
     fn destroy(&self) -> Result<()>;
 
-    fn render(&mut self, window: &winit::window::Window) -> Result<()>;
+    fn render(&mut self) -> Result<()>;
 
     fn resize(&mut self, size: [u32; 2]) -> Result<()>;
 }
