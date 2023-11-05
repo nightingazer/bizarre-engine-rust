@@ -10,4 +10,6 @@ bizarre_core = { path = "../bizarre_core" }
 bizarre_events = { path = "../bizarre_events" }
 bizarre_render = { path = "../bizarre_render" }
 
+nalgebra-glm = { workspace = true }
+
 winit = "0.28.7"

@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use anyhow::Result;
 
-use crate::vulkan::vulkan_renderer::VulkanRenderer;
+use crate::{render_package::RenderPackage, vulkan::vulkan_renderer::VulkanRenderer};
 
 pub trait Renderer {
     fn new(window: &winit::window::Window) -> Result<Self>
@@ -10,7 +10,7 @@ pub trait Renderer {
         Self: Sized;
     fn destroy(&self) -> Result<()>;
 
-    fn render(&mut self) -> Result<()>;
+    fn render(&mut self, render_package: RenderPackage) -> Result<()>;
 
     fn resize(&mut self, size: [u32; 2]) -> Result<()>;
 }

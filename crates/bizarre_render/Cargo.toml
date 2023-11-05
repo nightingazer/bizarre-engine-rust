@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 nalgebra-glm = { workspace = true }
+specs = { workspace = true }
 
 tobj = "4.0.0"
 winit = "0.28.7"

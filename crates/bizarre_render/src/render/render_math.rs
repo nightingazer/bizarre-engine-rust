@@ -1,8 +1,5 @@
 use nalgebra_glm::{identity, TMat4};
-use vulkano::buffer::BufferContents;
 
-#[repr(C)]
-#[derive(BufferContents)]
 pub struct ModelViewProjection {
     pub model: TMat4<f32>,
     pub view: TMat4<f32>,
@@ -27,6 +24,6 @@ pub struct AmbientLight {
 
 #[derive(Default, Debug, Clone)]
 pub struct DirectionalLight {
-    position: [f32; 3],
-    color: [f32; 3],
+    pub position: [f32; 3],
+    pub color: [f32; 3],
 }

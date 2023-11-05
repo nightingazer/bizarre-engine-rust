@@ -53,10 +53,9 @@ pub mod fs {
                 vec3 ambient_color = ambient.ambient_color * ambient.ambient_intensity;
                 vec3 light_direction = normalize(directional.position - v_frag_position);
                 float directional_intensity = max(dot(v_normal, light_direction), 0.0);
-                vec3 directional_color = directional.color * directional_intensity;
+                vec3 directional_color = directional_intensity * directional.color;
                 vec3 combined_color = (directional_color + ambient_color) * v_color;
                 f_color = vec4(combined_color, 1.0);
-                //f_color = vec4(v_normal, 1.0);
             }
         "
     }

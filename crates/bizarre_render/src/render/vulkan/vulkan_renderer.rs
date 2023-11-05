@@ -47,11 +47,11 @@ use vulkano::{
 use vulkano_win::{create_surface_from_handle_ref, create_surface_from_winit, VkSurfaceBuild};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
 
-use crate::{render_math::ModelViewProjection, renderer::Renderer};
+use crate::{render_math::ModelViewProjection, render_package::RenderPackage, renderer::Renderer};
 
 use super::{
     shaders::{fs, vs},
-    vertex::{VertexData, CUBE_VERTICES},
+    vertex::VulkanVertexData,
 };
 
 pub struct VulkanRenderer {
@@ -213,7 +213,7 @@ impl Renderer for VulkanRenderer {
         let fs = fs::load(device.clone())?;
 
         let pipeline = GraphicsPipeline::start()
-            .vertex_input_state(BuffersDefinition::new().vertex::<VertexData>())
+            .vertex_input_state(BuffersDefinition::new().vertex::<VulkanVertexData>())
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
             .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
@@ -247,7 +247,7 @@ impl Renderer for VulkanRenderer {
         Ok(())
     }
 
-    fn render(&mut self) -> Result<()> {
+    fn render(&mut self, render_package: RenderPackage) -> Result<()> {
         self.previous_frame_end
             .as_mut()
             .take()
@@ -284,17 +284,17 @@ impl Renderer for VulkanRenderer {
                 Ok(r) => r,
                 Err(AcquireError::OutOfDate) => {
                     self.recreate_swapchain = true;
-                    return self.render();
+                    return self.render(render_package);
                 }
                 Err(e) => return Err(anyhow!("Failed to acquire next image: {}", e)),
             };
 
         if suboptimal {
             self.recreate_swapchain = true;
-            return self.render();
+            return self.render(render_package);
         }
 
-        let clear_values = vec![Some([0.075, 0.05, 0.2, 1.0].into()), Some(1.0.into())];
+        let clear_values = vec![Some(render_package.clear_color.into()), Some(1.0.into())];
 
         let mut cmd_buffer_builder = AutoCommandBufferBuilder::primary(
             &self.cmd_buffer_allocator,
@@ -303,7 +303,11 @@ impl Renderer for VulkanRenderer {
         )
         .unwrap();
 
-        let vertices = CUBE_VERTICES;
+        let vertices: Vec<VulkanVertexData> = render_package
+            .vertices
+            .into_iter()
+            .map(|v| v.into())
+            .collect();
 
         let memory_allocator = StandardMemoryAllocator::new_default(self.device.clone());
 
@@ -352,8 +356,8 @@ impl Renderer for VulkanRenderer {
         )?;
 
         let ambient_light = crate::render::vulkan::shaders::fs::Ambient_Data {
-            ambient_color: [0.3, 0.3, 1.0],
-            ambient_intensity: 0.5,
+            ambient_color: render_package.ambient_light.color,
+            ambient_intensity: render_package.ambient_light.intensity,
         };
 
         let ambient_uniform = Buffer::from_data(
@@ -370,8 +374,8 @@ impl Renderer for VulkanRenderer {
         )?;
 
         let directional_light = crate::render::vulkan::shaders::fs::Directional_Data {
-            color: [1.0, 1.0, 1.0].into(),
-            position: [-4.0, -4.0, 5.0].into(),
+            position: render_package.directional_light.position.into(),
+            color: render_package.directional_light.color,
         };
 
         let directional_uniform = Buffer::from_data(
@@ -388,7 +392,7 @@ impl Renderer for VulkanRenderer {
         )?;
 
         let descriptor_set_allocator = StandardDescriptorSetAllocator::new(self.device.clone());
-        let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
+        let layout = self.pipeline.layout().set_layouts().first().unwrap();
         let set = PersistentDescriptorSet::new(
             &descriptor_set_allocator,
             layout.clone(),
