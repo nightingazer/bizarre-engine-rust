@@ -77,7 +77,7 @@ impl App {
             for layer in self.layers.iter_mut() {
                 let r = layer.on_update(&self.event_bus, &mut self.world);
                 if let Err(e) = r {
-                    core_critical!("Layer update failed: {}", e);
+                    core_critical!("Layer update failed: {0:?}", e);
                     self.destroy();
                     return;
                 }

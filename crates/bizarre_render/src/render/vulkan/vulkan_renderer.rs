@@ -6,6 +6,8 @@ use nalgebra_glm::{half_pi, look_at, perspective, vec3};
 use vulkano::instance::debug::{
     DebugUtilsMessageSeverity, DebugUtilsMessenger, DebugUtilsMessengerCreateInfo, Message,
 };
+use vulkano::pipeline::Pipeline;
+use vulkano::render_pass::Subpass;
 use vulkano::swapchain::Swapchain;
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
@@ -24,7 +26,7 @@ use vulkano::{
     image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
     instance::{Instance, InstanceCreateInfo},
     memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
-    pipeline::{graphics::viewport::Viewport, GraphicsPipeline, Pipeline, PipelineBindPoint},
+    pipeline::{graphics::viewport::Viewport, GraphicsPipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
     swapchain::{AcquireError, SwapchainCreateInfo, SwapchainCreationError, SwapchainPresentInfo},
     sync::{self, FlushError, GpuFuture},
@@ -35,10 +37,9 @@ use vulkano_win::create_surface_from_handle_ref;
 use crate::{render_math::ModelViewProjection, render_package::RenderPackage, renderer::Renderer};
 
 use super::pipeline::create_graphics_pipeline;
-use super::{
-    shaders::{fs, vs},
-    vertex::VulkanVertexData,
-};
+use super::render_pass::create_render_pass;
+use super::shaders::{deferred_frag, deferred_vert, lighting_frag, lighting_vert};
+use super::vertex::VulkanVertexData;
 
 pub struct VulkanRenderer {
     _instance: Arc<Instance>,
@@ -51,8 +52,11 @@ pub struct VulkanRenderer {
     surface_size: [u32; 2],
 
     framebuffers: Vec<Arc<Framebuffer>>,
+    color_buffer: Arc<ImageView<AttachmentImage>>,
+    normals_buffer: Arc<ImageView<AttachmentImage>>,
     render_pass: Arc<RenderPass>,
-    pipeline: Arc<GraphicsPipeline>,
+    deferred_pipeline: Arc<GraphicsPipeline>,
+    lighting_pipeline: Arc<GraphicsPipeline>,
 
     previous_frame_end: Option<Box<dyn GpuFuture>>,
 
@@ -72,7 +76,12 @@ fn debug_messenger_user_callback(msg: &Message) {
         DebugUtilsMessageSeverity::INFO => {
             core_info!("Vulkan: {}", msg.description);
         }
-        _ => (),
+        DebugUtilsMessageSeverity::VERBOSE => {
+            core_debug!("Vulkan: {}", msg.description);
+        }
+        _ => {
+            core_debug!("Vulkan: {}", msg.description);
+        }
     }
 }
 
@@ -93,15 +102,6 @@ impl Renderer for VulkanRenderer {
                     max_api_version: Some(vulkano::Version::V1_1),
                     ..Default::default()
                 },
-            )?
-        };
-
-        let debug_messenger = unsafe {
-            DebugUtilsMessenger::new(
-                instance.clone(),
-                DebugUtilsMessengerCreateInfo::user_callback(Arc::new(
-                    debug_messenger_user_callback,
-                )),
             )?
         };
 
@@ -186,48 +186,57 @@ impl Renderer for VulkanRenderer {
         let cmd_buffer_allocator =
             StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
-        let render_pass = vulkano::single_pass_renderpass!(
-            device.clone(),
-            attachments: {
-                color: {
-                    load: Clear,
-                    store: Store,
-                    format: swapchain.image_format(),
-                    samples: 1,
-                },
-                depth: {
-                    load: Clear,
-                    store: DontCare,
-                    format: Format::D16_UNORM,
-                    samples: 1,
-                }
-            },
-            pass: {
-                color: [color],
-                depth_stencil: {depth}
-            }
-        )?;
-
         let mut viewport = Viewport {
             origin: [0.0, 0.0],
             dimensions: [0.0, 0.0],
             depth_range: 0.0..1.0,
         };
 
+        let render_pass = create_render_pass(swapchain.clone(), device.clone())?;
+
         let allocator: StandardMemoryAllocator =
             StandardMemoryAllocator::new_default(device.clone());
 
-        let framebuffers =
+        let (framebuffers, color_buffer, normals_buffer) =
             window_size_dependent_setup(&images, render_pass.clone(), &mut viewport, &allocator)?;
 
         let previous_frame_end = Some(Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>);
 
-        let vs = vs::load(device.clone())?;
-        let fs = fs::load(device.clone())?;
+        let deferred_subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+        let lighting_subpass = Subpass::from(render_pass.clone(), 1).unwrap();
 
-        let pipeline = create_graphics_pipeline(vs, fs, &render_pass, &device)?;
+        let deferred_pipeline = {
+            let deferred_vert = deferred_vert::load(device.clone())?;
+            let deferred_frag = deferred_frag::load(device.clone())?;
+            create_graphics_pipeline(
+                deferred_vert,
+                deferred_frag,
+                deferred_subpass,
+                device.clone(),
+            )?
+        };
+
+        let lighting_pipeline = {
+            let lighting_vert = lighting_vert::load(device.clone())?;
+            let lighting_frag = lighting_frag::load(device.clone())?;
+            create_graphics_pipeline(
+                lighting_vert,
+                lighting_frag,
+                lighting_subpass,
+                device.clone(),
+            )?
+        };
 
         Ok(Self {
+            _debug_messenger: unsafe {
+                DebugUtilsMessenger::new(
+                    instance.clone(),
+                    DebugUtilsMessengerCreateInfo::user_callback(Arc::new(|msg| {
+                        debug_messenger_user_callback(msg)
+                    })),
+                )?
+            },
+
             _instance: instance,
             device,
             swapchain,
@@ -237,15 +246,16 @@ impl Renderer for VulkanRenderer {
             recreate_swapchain: false,
             surface_size: window.inner_size().into(),
 
-            pipeline,
+            deferred_pipeline,
+            lighting_pipeline,
             framebuffers,
+            color_buffer,
+            normals_buffer,
             render_pass,
 
             previous_frame_end,
 
             cmd_buffer_allocator,
-
-            _debug_messenger: debug_messenger,
         })
     }
 
@@ -276,12 +286,15 @@ impl Renderer for VulkanRenderer {
             self.swapchain = new_swapchain;
 
             let allocator = StandardMemoryAllocator::new_default(self.device.clone());
-            self.framebuffers = window_size_dependent_setup(
+            let (framebuffers, color_buffer, normals_buffer) = window_size_dependent_setup(
                 &new_images,
                 self.render_pass.clone(),
                 &mut self.viewport,
                 &allocator,
             )?;
+            self.framebuffers = framebuffers;
+            self.color_buffer = color_buffer;
+            self.normals_buffer = normals_buffer;
             self.recreate_swapchain = false;
         }
 
@@ -290,17 +303,21 @@ impl Renderer for VulkanRenderer {
                 Ok(r) => r,
                 Err(AcquireError::OutOfDate) => {
                     self.recreate_swapchain = true;
-                    return self.render(render_package);
+                    return Ok(());
                 }
                 Err(e) => return Err(anyhow!("Failed to acquire next image: {}", e)),
             };
 
         if suboptimal {
             self.recreate_swapchain = true;
-            return self.render(render_package);
         }
 
-        let clear_values = vec![Some(render_package.clear_color.into()), Some(1.0.into())];
+        let clear_values = vec![
+            Some(render_package.clear_color.into()),
+            Some(render_package.clear_color.into()),
+            Some([0.0, 0.0, 0.0, 1.0].into()),
+            Some(1.0.into()),
+        ];
 
         let mut cmd_buffer_builder = AutoCommandBufferBuilder::primary(
             &self.cmd_buffer_allocator,
@@ -341,7 +358,7 @@ impl Renderer for VulkanRenderer {
                 &vec3(0.0, 1.0, 0.0),
             );
 
-            crate::render::vulkan::shaders::vs::MVP_Data {
+            crate::render::vulkan::shaders::deferred_vert::MVP_Data {
                 model: mvp.model.into(),
                 projection: mvp.projection.into(),
                 view: mvp.view.into(),
@@ -361,7 +378,7 @@ impl Renderer for VulkanRenderer {
             mvp_data,
         )?;
 
-        let ambient_light = crate::render::vulkan::shaders::fs::Ambient_Data {
+        let ambient_light = crate::render::vulkan::shaders::lighting_frag::Ambient_Data {
             ambient_color: render_package.ambient_light.color,
             ambient_intensity: render_package.ambient_light.intensity,
         };
@@ -379,7 +396,7 @@ impl Renderer for VulkanRenderer {
             ambient_light,
         )?;
 
-        let directional_light = crate::render::vulkan::shaders::fs::Directional_Data {
+        let directional_light = crate::render::vulkan::shaders::lighting_frag::Directional_Data {
             position: render_package.directional_light.position.into(),
             color: render_package.directional_light.color,
         };
@@ -398,16 +415,41 @@ impl Renderer for VulkanRenderer {
         )?;
 
         let descriptor_set_allocator = StandardDescriptorSetAllocator::new(self.device.clone());
-        let layout = self.pipeline.layout().set_layouts().first().unwrap();
-        let set = PersistentDescriptorSet::new(
+
+        let deferred_layout = self
+            .deferred_pipeline
+            .layout()
+            .set_layouts()
+            .get(0)
+            .unwrap();
+        let deferred_set = PersistentDescriptorSet::new(
             &descriptor_set_allocator,
-            layout.clone(),
-            [
-                WriteDescriptorSet::buffer(0, mvp_uniform),
-                WriteDescriptorSet::buffer(1, ambient_uniform),
-                WriteDescriptorSet::buffer(2, directional_uniform),
-            ],
+            deferred_layout.clone(),
+            [WriteDescriptorSet::buffer(0, mvp_uniform.clone())],
         )?;
+
+        let lighting_layout = self
+            .lighting_pipeline
+            .layout()
+            .set_layouts()
+            .get(0)
+            .unwrap();
+        let lighting_set = PersistentDescriptorSet::new(
+            &descriptor_set_allocator,
+            lighting_layout.clone(),
+            [
+                WriteDescriptorSet::image_view(0, self.color_buffer.clone()),
+                WriteDescriptorSet::image_view(1, self.normals_buffer.clone()),
+                WriteDescriptorSet::buffer(2, mvp_uniform.clone()),
+                WriteDescriptorSet::buffer(3, ambient_uniform.clone()),
+                WriteDescriptorSet::buffer(4, directional_uniform.clone()),
+            ],
+        );
+
+        let lighting_set = match lighting_set {
+            Ok(s) => s,
+            Err(e) => return Err(anyhow!("Failed to create lighting descriptor set: {:?}", e)),
+        };
 
         cmd_buffer_builder
             .begin_render_pass(
@@ -420,14 +462,23 @@ impl Renderer for VulkanRenderer {
                 SubpassContents::Inline,
             )?
             .set_viewport(0, [self.viewport.clone()])
-            .bind_pipeline_graphics(self.pipeline.clone())
+            .bind_pipeline_graphics(self.deferred_pipeline.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
-                self.pipeline.layout().clone(),
+                self.deferred_pipeline.layout().clone(),
                 0,
-                set.clone(),
+                deferred_set.clone(),
             )
             .bind_vertex_buffers(0, vertex_buffer.clone())
+            .draw(vertex_buffer.len() as u32, 1, 0, 0)?
+            .next_subpass(SubpassContents::Inline)?
+            .bind_pipeline_graphics(self.lighting_pipeline.clone())
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.lighting_pipeline.layout().clone(),
+                0,
+                lighting_set.clone(),
+            )
             .draw(vertex_buffer.len() as u32, 1, 0, 0)?
             .end_render_pass()?;
 
@@ -472,27 +523,51 @@ fn window_size_dependent_setup(
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
     allocator: &StandardMemoryAllocator,
-) -> Result<Vec<Arc<Framebuffer>>> {
+) -> Result<(
+    Vec<Arc<Framebuffer>>,
+    Arc<ImageView<AttachmentImage>>,
+    Arc<ImageView<AttachmentImage>>,
+)> {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+
+    let color_buffer = ImageView::new_default(AttachmentImage::transient_input_attachment(
+        allocator,
+        dimensions,
+        Format::A2B10G10R10_UNORM_PACK32,
+    )?)?;
+
+    let normals_buffer = ImageView::new_default(AttachmentImage::transient_input_attachment(
+        allocator,
+        dimensions,
+        Format::R16G16B16A16_SFLOAT,
+    )?)?;
+
     let depth_buffer = ImageView::new_default(AttachmentImage::transient(
         allocator,
         dimensions,
         Format::D16_UNORM,
     )?)?;
 
-    images
+    let framebuffers = images
         .iter()
         .map(|image| {
             let view = ImageView::new_default(image.clone())?;
             let r = Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {
-                    attachments: vec![view, depth_buffer.clone()],
+                    attachments: vec![
+                        view,
+                        color_buffer.clone(),
+                        normals_buffer.clone(),
+                        depth_buffer.clone(),
+                    ],
                     ..Default::default()
                 },
             )?;
             Ok(r)
         })
-        .collect::<Result<Vec<_>>>()
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok((framebuffers, color_buffer, normals_buffer))
 }
