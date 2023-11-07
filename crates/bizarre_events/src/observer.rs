@@ -104,15 +104,6 @@ impl<E: Event + 'static> Default for SyncEventBus<E> {
     }
 }
 
-impl<E: Event + 'static> SyncEventBus<E> {
-    #[deprecated]
-    pub fn new() -> Self {
-        Self(RwLock::new(TypedEventBus::<E> {
-            listeners: Vec::new(),
-        }))
-    }
-}
-
 impl<E> Deref for SyncEventBus<E>
 where
     E: Event + 'static,

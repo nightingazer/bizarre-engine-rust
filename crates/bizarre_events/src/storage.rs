@@ -16,14 +16,6 @@ unsafe impl Send for ErasedStorage {}
 unsafe impl Sync for ErasedStorage {}
 
 impl ErasedStorage {
-    #[deprecated]
-    pub fn new() -> Self {
-        Self {
-            items: Default::default(),
-            dyn_items: Default::default(),
-        }
-    }
-
     pub fn put<T: 'static>(&mut self, item: T) {
         self.items.insert(TypeId::of::<T>(), Box::new(item));
     }
