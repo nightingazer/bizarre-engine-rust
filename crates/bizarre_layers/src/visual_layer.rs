@@ -125,7 +125,7 @@ impl Layer for VisualLayer {
         let mut submitter = RenderSubmitter::new();
         submitter.set_clear_color([0.0, 0.0, 0.0, 1.0]);
         submitter.set_ambient_light(bizarre_render::render_math::AmbientLight {
-            color: [0.3, 0.2, 0.5],
+            color: [0.1, 0.1, 0.1],
             intensity: 0.5,
         });
 
@@ -143,21 +143,21 @@ impl Layer for VisualLayer {
         world
             .create_entity()
             .with(DirectionalLight {
-                color: [0.7, 0.2, 0.2],
+                color: [0.4, 0.1, 0.1],
                 position: [0.0, -10.0, 5.0],
             })
             .build();
         world
             .create_entity()
             .with(DirectionalLight {
-                color: [0.2, 0.7, 0.2],
+                color: [0.1, 0.4, 0.1],
                 position: [-10.0, 0.0, 5.0],
             })
             .build();
         world
             .create_entity()
             .with(DirectionalLight {
-                color: [0.2, 0.2, 0.7],
+                color: [0.1, 0.1, 0.4],
                 position: [10.0, 0.0, 5.0],
             })
             .build();
