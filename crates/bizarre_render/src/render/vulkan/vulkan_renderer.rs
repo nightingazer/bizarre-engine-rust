@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use bizarre_logger::core_debug;
+use bizarre_logger::{core_debug, core_error, core_info, core_warn};
 use nalgebra_glm::{half_pi, look_at, perspective, vec3};
-use vulkano::pipeline::graphics::vertex_input::Vertex;
+use vulkano::instance::debug::{
+    DebugUtilsMessageSeverity, DebugUtilsMessenger, DebugUtilsMessengerCreateInfo, Message,
+};
 use vulkano::swapchain::Swapchain;
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
@@ -22,16 +24,8 @@ use vulkano::{
     image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
     instance::{Instance, InstanceCreateInfo},
     memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
-    pipeline::{
-        graphics::{
-            depth_stencil::DepthStencilState,
-            input_assembly::InputAssemblyState,
-            rasterization::{CullMode, RasterizationState},
-            viewport::{Viewport, ViewportState},
-        },
-        GraphicsPipeline, Pipeline, PipelineBindPoint,
-    },
-    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
+    pipeline::{graphics::viewport::Viewport, GraphicsPipeline, Pipeline, PipelineBindPoint},
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
     swapchain::{AcquireError, SwapchainCreateInfo, SwapchainCreationError, SwapchainPresentInfo},
     sync::{self, FlushError, GpuFuture},
     VulkanLibrary,
@@ -40,6 +34,7 @@ use vulkano_win::create_surface_from_handle_ref;
 
 use crate::{render_math::ModelViewProjection, render_package::RenderPackage, renderer::Renderer};
 
+use super::pipeline::create_graphics_pipeline;
 use super::{
     shaders::{fs, vs},
     vertex::VulkanVertexData,
@@ -62,6 +57,23 @@ pub struct VulkanRenderer {
     previous_frame_end: Option<Box<dyn GpuFuture>>,
 
     cmd_buffer_allocator: StandardCommandBufferAllocator,
+
+    _debug_messenger: DebugUtilsMessenger,
+}
+
+fn debug_messenger_user_callback(msg: &Message) {
+    match msg.severity {
+        DebugUtilsMessageSeverity::ERROR => {
+            core_error!("Vulkan: {}", msg.description);
+        }
+        DebugUtilsMessageSeverity::WARNING => {
+            core_warn!("Vulkan: {}", msg.description);
+        }
+        DebugUtilsMessageSeverity::INFO => {
+            core_info!("Vulkan: {}", msg.description);
+        }
+        _ => (),
+    }
 }
 
 impl Renderer for VulkanRenderer {
@@ -71,7 +83,8 @@ impl Renderer for VulkanRenderer {
     {
         let instance = {
             let library = VulkanLibrary::new()?;
-            let extensions = vulkano_win::required_extensions(&library);
+            let mut extensions = vulkano_win::required_extensions(&library);
+            extensions.ext_debug_utils = true;
             Instance::new(
                 library,
                 InstanceCreateInfo {
@@ -80,6 +93,15 @@ impl Renderer for VulkanRenderer {
                     max_api_version: Some(vulkano::Version::V1_1),
                     ..Default::default()
                 },
+            )?
+        };
+
+        let debug_messenger = unsafe {
+            DebugUtilsMessenger::new(
+                instance.clone(),
+                DebugUtilsMessengerCreateInfo::user_callback(Arc::new(
+                    debug_messenger_user_callback,
+                )),
             )?
         };
 
@@ -203,16 +225,7 @@ impl Renderer for VulkanRenderer {
         let vs = vs::load(device.clone())?;
         let fs = fs::load(device.clone())?;
 
-        let pipeline = GraphicsPipeline::start()
-            .vertex_input_state(VulkanVertexData::per_vertex())
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            .input_assembly_state(InputAssemblyState::new())
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            .build(device.clone())?;
+        let pipeline = create_graphics_pipeline(vs, fs, &render_pass, &device)?;
 
         Ok(Self {
             _instance: instance,
@@ -231,6 +244,8 @@ impl Renderer for VulkanRenderer {
             previous_frame_end,
 
             cmd_buffer_allocator,
+
+            _debug_messenger: debug_messenger,
         })
     }
 
