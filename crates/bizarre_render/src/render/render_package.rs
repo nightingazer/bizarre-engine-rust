@@ -6,6 +6,6 @@ use crate::{
 pub struct RenderPackage {
     pub vertices: Vec<VertexData>,
     pub ambient_light: AmbientLight,
-    pub directional_light: DirectionalLight,
+    pub directional_lights: Vec<DirectionalLight>,
     pub clear_color: [f32; 4],
 }

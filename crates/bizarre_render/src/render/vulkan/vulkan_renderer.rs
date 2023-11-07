@@ -38,7 +38,9 @@ use crate::{render_math::ModelViewProjection, render_package::RenderPackage, ren
 
 use super::pipeline::create_graphics_pipeline;
 use super::render_pass::create_render_pass;
-use super::shaders::{deferred_frag, deferred_vert, lighting_frag, lighting_vert};
+use super::shaders::{
+    ambient_frag, ambient_vert, deferred_frag, deferred_vert, directional_frag, directional_vert,
+};
 use super::vertex::VulkanVertexData;
 
 pub struct VulkanRenderer {
@@ -55,8 +57,10 @@ pub struct VulkanRenderer {
     color_buffer: Arc<ImageView<AttachmentImage>>,
     normals_buffer: Arc<ImageView<AttachmentImage>>,
     render_pass: Arc<RenderPass>,
+
     deferred_pipeline: Arc<GraphicsPipeline>,
-    lighting_pipeline: Arc<GraphicsPipeline>,
+    ambient_pipeline: Arc<GraphicsPipeline>,
+    directional_pipeline: Arc<GraphicsPipeline>,
 
     previous_frame_end: Option<Box<dyn GpuFuture>>,
 
@@ -213,17 +217,34 @@ impl Renderer for VulkanRenderer {
                 deferred_frag,
                 deferred_subpass,
                 device.clone(),
+                None,
+                None,
             )?
         };
 
-        let lighting_pipeline = {
-            let lighting_vert = lighting_vert::load(device.clone())?;
-            let lighting_frag = lighting_frag::load(device.clone())?;
+        let ambient_pipeline = {
+            let ambient_vert = ambient_vert::load(device.clone())?;
+            let ambient_frag = ambient_frag::load(device.clone())?;
             create_graphics_pipeline(
-                lighting_vert,
-                lighting_frag,
-                lighting_subpass,
+                ambient_vert,
+                ambient_frag,
+                lighting_subpass.clone(),
                 device.clone(),
+                Some(true),
+                Some(lighting_subpass.num_color_attachments()),
+            )?
+        };
+
+        let directional_pipeline = {
+            let directional_vert = directional_vert::load(device.clone())?;
+            let directional_frag = directional_frag::load(device.clone())?;
+            create_graphics_pipeline(
+                directional_vert,
+                directional_frag,
+                lighting_subpass.clone(),
+                device.clone(),
+                Some(true),
+                Some(lighting_subpass.num_color_attachments()),
             )?
         };
 
@@ -247,7 +268,9 @@ impl Renderer for VulkanRenderer {
             surface_size: window.inner_size().into(),
 
             deferred_pipeline,
-            lighting_pipeline,
+            ambient_pipeline,
+            directional_pipeline,
+
             framebuffers,
             color_buffer,
             normals_buffer,
@@ -314,7 +337,7 @@ impl Renderer for VulkanRenderer {
 
         let clear_values = vec![
             Some(render_package.clear_color.into()),
-            Some(render_package.clear_color.into()),
+            Some([0.0, 0.0, 0.0, 1.0].into()),
             Some([0.0, 0.0, 0.0, 1.0].into()),
             Some(1.0.into()),
         ];
@@ -353,7 +376,7 @@ impl Renderer for VulkanRenderer {
             let aspect_ratio = self.surface_size[0] as f32 / self.surface_size[1] as f32;
             mvp.projection = perspective(aspect_ratio, half_pi(), 0.01, 100.0);
             mvp.view = look_at(
-                &vec3(2.0, -2.0, 2.5),
+                &vec3(0.0, -3.5, 5.0),
                 &vec3(0.0, 0.0, 0.0),
                 &vec3(0.0, 1.0, 0.0),
             );
@@ -378,9 +401,9 @@ impl Renderer for VulkanRenderer {
             mvp_data,
         )?;
 
-        let ambient_light = crate::render::vulkan::shaders::lighting_frag::Ambient_Data {
-            ambient_color: render_package.ambient_light.color,
-            ambient_intensity: render_package.ambient_light.intensity,
+        let ambient_light = crate::render::vulkan::shaders::ambient_frag::Ambient_Data {
+            color: render_package.ambient_light.color,
+            intencity: render_package.ambient_light.intensity,
         };
 
         let ambient_uniform = Buffer::from_data(
@@ -394,24 +417,6 @@ impl Renderer for VulkanRenderer {
                 ..Default::default()
             },
             ambient_light,
-        )?;
-
-        let directional_light = crate::render::vulkan::shaders::lighting_frag::Directional_Data {
-            position: render_package.directional_light.position.into(),
-            color: render_package.directional_light.color,
-        };
-
-        let directional_uniform = Buffer::from_data(
-            &memory_allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::UNIFORM_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
-                ..Default::default()
-            },
-            directional_light,
         )?;
 
         let descriptor_set_allocator = StandardDescriptorSetAllocator::new(self.device.clone());
@@ -428,28 +433,16 @@ impl Renderer for VulkanRenderer {
             [WriteDescriptorSet::buffer(0, mvp_uniform.clone())],
         )?;
 
-        let lighting_layout = self
-            .lighting_pipeline
-            .layout()
-            .set_layouts()
-            .get(0)
-            .unwrap();
-        let lighting_set = PersistentDescriptorSet::new(
+        let ambient_layout = self.ambient_pipeline.layout().set_layouts().get(0).unwrap();
+        let ambient_set = PersistentDescriptorSet::new(
             &descriptor_set_allocator,
-            lighting_layout.clone(),
+            ambient_layout.clone(),
             [
                 WriteDescriptorSet::image_view(0, self.color_buffer.clone()),
-                WriteDescriptorSet::image_view(1, self.normals_buffer.clone()),
-                WriteDescriptorSet::buffer(2, mvp_uniform.clone()),
-                WriteDescriptorSet::buffer(3, ambient_uniform.clone()),
-                WriteDescriptorSet::buffer(4, directional_uniform.clone()),
+                WriteDescriptorSet::buffer(1, mvp_uniform.clone()),
+                WriteDescriptorSet::buffer(2, ambient_uniform.clone()),
             ],
-        );
-
-        let lighting_set = match lighting_set {
-            Ok(s) => s,
-            Err(e) => return Err(anyhow!("Failed to create lighting descriptor set: {:?}", e)),
-        };
+        )?;
 
         cmd_buffer_builder
             .begin_render_pass(
@@ -472,15 +465,64 @@ impl Renderer for VulkanRenderer {
             .bind_vertex_buffers(0, vertex_buffer.clone())
             .draw(vertex_buffer.len() as u32, 1, 0, 0)?
             .next_subpass(SubpassContents::Inline)?
-            .bind_pipeline_graphics(self.lighting_pipeline.clone())
+            .bind_pipeline_graphics(self.ambient_pipeline.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
-                self.lighting_pipeline.layout().clone(),
+                self.ambient_pipeline.layout().clone(),
                 0,
-                lighting_set.clone(),
+                ambient_set.clone(),
             )
             .draw(vertex_buffer.len() as u32, 1, 0, 0)?
-            .end_render_pass()?;
+            .bind_pipeline_graphics(self.directional_pipeline.clone());
+
+        for light in render_package.directional_lights {
+            let directional_light =
+                crate::render::vulkan::shaders::directional_frag::Directional_Data {
+                    position: light.position.into(),
+                    color: light.color,
+                };
+
+            let directional_uniform = Buffer::from_data(
+                &memory_allocator,
+                BufferCreateInfo {
+                    usage: BufferUsage::UNIFORM_BUFFER,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    usage: MemoryUsage::Upload,
+                    ..Default::default()
+                },
+                directional_light,
+            )?;
+
+            let directional_layout = self
+                .directional_pipeline
+                .layout()
+                .set_layouts()
+                .get(0)
+                .unwrap();
+            let directional_set = PersistentDescriptorSet::new(
+                &descriptor_set_allocator,
+                directional_layout.clone(),
+                [
+                    WriteDescriptorSet::image_view(0, self.color_buffer.clone()),
+                    WriteDescriptorSet::image_view(1, self.normals_buffer.clone()),
+                    WriteDescriptorSet::buffer(2, mvp_uniform.clone()),
+                    WriteDescriptorSet::buffer(3, directional_uniform.clone()),
+                ],
+            )?;
+
+            cmd_buffer_builder
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Graphics,
+                    self.directional_pipeline.layout().clone(),
+                    0,
+                    directional_set.clone(),
+                )
+                .draw(vertex_buffer.len() as u32, 1, 0, 0)?;
+        }
+
+        cmd_buffer_builder.end_render_pass()?;
 
         let cmd_buffer = cmd_buffer_builder.build()?;
 

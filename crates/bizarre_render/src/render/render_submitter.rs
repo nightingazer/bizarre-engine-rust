@@ -8,7 +8,7 @@ pub struct RenderSubmitter {
     vertex_buffer: Vec<VertexData>,
     clear_color: [f32; 4],
     ambient_light: AmbientLight,
-    directional_light: DirectionalLight,
+    directional_lights: Vec<DirectionalLight>,
 }
 
 impl Default for RenderSubmitter {
@@ -23,12 +23,12 @@ impl RenderSubmitter {
             vertex_buffer: Vec::new(),
             clear_color: [0.0, 0.0, 0.0, 1.0],
             ambient_light: AmbientLight::default(),
-            directional_light: DirectionalLight::default(),
+            directional_lights: Vec::new(),
         }
     }
 
-    pub fn submit_vertices(&mut self, vertices: &mut Vec<VertexData>) {
-        self.vertex_buffer.append(vertices);
+    pub fn submit_vertices(&mut self, mut vertices: Vec<VertexData>) {
+        self.vertex_buffer.append(&mut vertices);
     }
 
     pub fn set_clear_color(&mut self, clear_color: [f32; 4]) {
@@ -39,23 +39,20 @@ impl RenderSubmitter {
         self.ambient_light = ambient_light;
     }
 
-    pub fn set_directional_light(&mut self, directional_light: DirectionalLight) {
-        self.directional_light = directional_light;
-    }
-
-    pub fn get_directional_light(&self) -> &DirectionalLight {
-        &self.directional_light
+    pub fn submit_directional_light(&mut self, directional_light: DirectionalLight) {
+        self.directional_lights.push(directional_light);
     }
 
     pub fn finalize_submission(&mut self) -> RenderPackage {
         let package = RenderPackage {
             vertices: self.vertex_buffer.clone(),
             ambient_light: self.ambient_light.clone(),
-            directional_light: self.directional_light.clone(),
+            directional_lights: self.directional_lights.clone(),
             clear_color: self.clear_color,
         };
 
         self.vertex_buffer.clear();
+        self.directional_lights.clear();
 
         package
     }

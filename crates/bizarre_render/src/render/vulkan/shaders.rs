@@ -16,20 +16,38 @@ pub mod deferred_frag {
     }
 }
 
-pub mod lighting_vert {
+pub mod ambient_vert {
     use vulkano_shaders::shader;
 
     shader! {
         ty: "vertex",
-        path: "assets/shaders/lighting.vert",
+        path: "assets/shaders/ambient.vert",
     }
 }
 
-pub mod lighting_frag {
+pub mod ambient_frag {
     use vulkano_shaders::shader;
 
     shader! {
         ty: "fragment",
-        path: "assets/shaders/lighting.frag",
+        path: "assets/shaders/ambient.frag",
+    }
+}
+
+pub mod directional_vert {
+    use vulkano_shaders::shader;
+
+    shader! {
+        ty: "vertex",
+        path: "assets/shaders/directional.vert",
+    }
+}
+
+pub mod directional_frag {
+    use vulkano_shaders::shader;
+
+    shader! {
+        ty: "fragment",
+        path: "assets/shaders/directional.frag",
     }
 }

@@ -1,4 +1,5 @@
 use nalgebra_glm::{identity, TMat4};
+use specs::{Component, VecStorage};
 
 pub struct ModelViewProjection {
     pub model: TMat4<f32>,
@@ -37,4 +38,8 @@ pub struct AmbientLight {
 pub struct DirectionalLight {
     pub position: [f32; 3],
     pub color: [f32; 3],
+}
+
+impl Component for DirectionalLight {
+    type Storage = VecStorage<Self>;
 }

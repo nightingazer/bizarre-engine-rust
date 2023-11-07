@@ -16,6 +16,6 @@ layout(location = 1) out vec3 v_normal;
 void main() {
   mat4 worldview = uniforms.view * uniforms.model;
   gl_Position = uniforms.projection * worldview * vec4(position, 1.0);
-  v_color = color;
+  v_color = vec3(1.0);
   v_normal = mat3(uniforms.model) * normal;
 }

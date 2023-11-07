@@ -7,6 +7,8 @@ use bizarre_core::{
     specs::{self, Builder, Read, ReadStorage, RunNow, System, WorldExt, Write},
     timing::DeltaTime,
 };
+use bizarre_render::render_components::Transform;
+use bizarre_render::vertex::VertexData;
 use bizarre_render::{
     render_components::CubeMesh,
     render_math::DirectionalLight,
@@ -14,6 +16,13 @@ use bizarre_render::{
     renderer::{create_renderer, Renderer, RendererBackend},
     vertex::CUBE_VERTICES,
 };
+use nalgebra_glm::radians;
+use nalgebra_glm::rotate;
+use nalgebra_glm::Mat4;
+use nalgebra_glm::TMat4;
+use nalgebra_glm::Vec3;
+use specs::Join;
+use specs::WriteStorage;
 use winit::{event_loop::ControlFlow, platform::run_return::EventLoopExtRunReturn};
 
 pub struct VisualLayer {
@@ -45,45 +54,64 @@ impl Default for VisualLayer {
     }
 }
 
+struct LightSystem;
+
+impl<'a> System<'a> for LightSystem {
+    type SystemData = (
+        Write<'a, RenderSubmitter>,
+        ReadStorage<'a, DirectionalLight>,
+    );
+
+    fn run(&mut self, data: Self::SystemData) {
+        let (mut submitter, lights) = data;
+
+        for light in lights.join() {
+            submitter.submit_directional_light(light.clone());
+        }
+    }
+}
+
 struct CubeSystem;
 
 impl<'a> System<'a> for CubeSystem {
     type SystemData = (
         Write<'a, RenderSubmitter>,
         ReadStorage<'a, CubeMesh>,
+        WriteStorage<'a, Transform>,
         Read<'a, DeltaTime>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
-        use specs::Join;
-
-        let (mut submitter, cubes, delta_time) = data;
+        let (mut submitter, cubes, mut transforms, delta_time) = data;
 
         let delta_time = delta_time.0;
-        let pi = std::f32::consts::PI;
-        let rotation_speed = pi * 0.5;
+        let rotation_speed = 90.0f32;
 
-        let mut dir_light = submitter.get_directional_light().clone();
+        for (_cube, transform) in (&cubes, &mut transforms).join() {
+            transform.rotation[1] += rotation_speed * delta_time;
+            let axis = Vec3::y_axis();
+            let angle = transform.rotation[1] * std::f32::consts::PI / 180.0;
+            let rotation = rotate(&TMat4::identity(), angle, &axis);
 
-        let light_position: [f32; 3] = {
-            let pos = dir_light.position;
-            let pos = nalgebra_glm::Vec3::from(pos);
-            let pos = nalgebra_glm::rotate_vec3(
-                &pos,
-                delta_time * rotation_speed,
-                &nalgebra_glm::Vec3::y(),
-            );
-            pos.into()
-        };
+            let vertices = CUBE_VERTICES
+                .to_vec()
+                .iter()
+                .map(|vertex| {
+                    let vec_3_pos = Vec3::from(vertex.position);
+                    let vec_3_pos = rotation.transform_vector(&vec_3_pos);
+                    let position: [f32; 3] = vec_3_pos.into();
+                    let vec_3_normal = Vec3::from(vertex.normal);
+                    let vec_3_normal = rotation.transform_vector(&vec_3_normal);
+                    let normal: [f32; 3] = vec_3_normal.into();
+                    VertexData {
+                        color: vertex.color,
+                        position,
+                        normal,
+                    }
+                })
+                .collect::<Vec<_>>();
 
-        dir_light.position = light_position;
-
-        submitter.set_directional_light(dir_light);
-
-        let mut vertices = Vec::from(CUBE_VERTICES);
-
-        for _cube in cubes.join() {
-            submitter.submit_vertices(&mut vertices);
+            submitter.submit_vertices(vertices);
         }
     }
 }
@@ -95,21 +123,44 @@ impl Layer for VisualLayer {
         world: &mut bizarre_core::specs::World,
     ) -> Result<()> {
         let mut submitter = RenderSubmitter::new();
-        submitter.set_clear_color([0.3, 0.2, 0.5, 1.0]);
+        submitter.set_clear_color([0.0, 0.0, 0.0, 1.0]);
         submitter.set_ambient_light(bizarre_render::render_math::AmbientLight {
             color: [0.3, 0.2, 0.5],
             intensity: 0.5,
-        });
-        submitter.set_directional_light(DirectionalLight {
-            color: [1.0, 1.0, 1.0],
-            position: [10.0, -10.0, 10.0],
         });
 
         world.insert(submitter);
 
         world.register::<CubeMesh>();
+        world.register::<Transform>();
+        world.register::<DirectionalLight>();
 
-        world.create_entity().with(CubeMesh {}).build();
+        world
+            .create_entity()
+            .with(CubeMesh {})
+            .with(Transform::default())
+            .build();
+        world
+            .create_entity()
+            .with(DirectionalLight {
+                color: [0.7, 0.2, 0.2],
+                position: [0.0, -10.0, 5.0],
+            })
+            .build();
+        world
+            .create_entity()
+            .with(DirectionalLight {
+                color: [0.2, 0.7, 0.2],
+                position: [-10.0, 0.0, 5.0],
+            })
+            .build();
+        world
+            .create_entity()
+            .with(DirectionalLight {
+                color: [0.2, 0.2, 0.7],
+                position: [10.0, 0.0, 5.0],
+            })
+            .build();
 
         Ok(())
     }
@@ -121,6 +172,8 @@ impl Layer for VisualLayer {
     ) -> Result<()> {
         let mut cube_sys = CubeSystem;
         cube_sys.run_now(world);
+        let mut lights_sys = LightSystem;
+        lights_sys.run_now(world);
         world.maintain();
 
         let mut input_handler = world.write_resource::<InputHandler>();
