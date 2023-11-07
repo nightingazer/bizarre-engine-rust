@@ -1,14 +1,12 @@
-use std::{
-    default,
-    sync::{Arc, Once},
-    time::Instant,
-};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use bizarre_logger::core_debug;
-use nalgebra_glm::{half_pi, look_at, perspective, pi, vec3};
+use nalgebra_glm::{half_pi, look_at, perspective, vec3};
+use vulkano::pipeline::graphics::vertex_input::Vertex;
+use vulkano::swapchain::Swapchain;
 use vulkano::{
-    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
+    buffer::{Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         RenderPassBeginInfo, SubpassContents,
@@ -17,35 +15,28 @@ use vulkano::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::{
-        physical::{self, PhysicalDevice, PhysicalDeviceType},
-        Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags,
+        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Queue,
+        QueueCreateInfo, QueueFlags,
     },
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
     instance::{Instance, InstanceCreateInfo},
-    memory::allocator::{
-        AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
-    },
+    memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
     pipeline::{
         graphics::{
             depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
             rasterization::{CullMode, RasterizationState},
-            vertex_input::BuffersDefinition,
             viewport::{Viewport, ViewportState},
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    swapchain::{
-        acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
-        SwapchainPresentInfo,
-    },
+    swapchain::{AcquireError, SwapchainCreateInfo, SwapchainCreationError, SwapchainPresentInfo},
     sync::{self, FlushError, GpuFuture},
     VulkanLibrary,
 };
-use vulkano_win::{create_surface_from_handle_ref, create_surface_from_winit, VkSurfaceBuild};
-use winit::{event_loop::EventLoop, window::WindowBuilder};
+use vulkano_win::create_surface_from_handle_ref;
 
 use crate::{render_math::ModelViewProjection, render_package::RenderPackage, renderer::Renderer};
 
@@ -55,7 +46,7 @@ use super::{
 };
 
 pub struct VulkanRenderer {
-    instance: Arc<Instance>,
+    _instance: Arc<Instance>,
     device: Arc<Device>,
     swapchain: Arc<Swapchain>,
     viewport: Viewport,
@@ -213,7 +204,7 @@ impl Renderer for VulkanRenderer {
         let fs = fs::load(device.clone())?;
 
         let pipeline = GraphicsPipeline::start()
-            .vertex_input_state(BuffersDefinition::new().vertex::<VulkanVertexData>())
+            .vertex_input_state(VulkanVertexData::per_vertex())
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
             .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
@@ -224,7 +215,7 @@ impl Renderer for VulkanRenderer {
             .build(device.clone())?;
 
         Ok(Self {
-            instance,
+            _instance: instance,
             device,
             swapchain,
             viewport,
@@ -325,7 +316,7 @@ impl Renderer for VulkanRenderer {
         )?;
 
         let mvp_data = {
-            let mut mvp = ModelViewProjection::new();
+            let mut mvp = ModelViewProjection::default();
 
             let aspect_ratio = self.surface_size[0] as f32 / self.surface_size[1] as f32;
             mvp.projection = perspective(aspect_ratio, half_pi(), 0.01, 100.0);

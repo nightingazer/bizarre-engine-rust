@@ -9,7 +9,7 @@ fn main() {
     app_logger_init(None).expect("Failed to init app logger");
 
     let mut app = App::new("Bizarre Engine");
-    app.add_layer(InputLayer::new());
-    app.add_layer(VisualLayer::new());
+    let _ = app.add_layer(InputLayer::new());
+    let _ = app.add_layer(VisualLayer::new());
     app.run();
 }

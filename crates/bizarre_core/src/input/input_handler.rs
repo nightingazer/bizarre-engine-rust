@@ -3,7 +3,6 @@ use bizarre_events::observer::EventBus;
 use crate::{
     input::input_event::KeyboardModifiers,
     input::{input_event::InputEvent, key_codes::KeyboardKey},
-    traits::Updatable,
 };
 
 use super::mouse_button::MouseButton;
@@ -17,6 +16,12 @@ pub struct InputHandler {
     previous_keyboard_state: [bool; u16::MAX as usize],
     mouse_button_state: [bool; u8::MAX as usize],
     previous_mouse_button_state: [bool; u8::MAX as usize],
+}
+
+impl Default for InputHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InputHandler {
@@ -73,12 +78,12 @@ impl InputHandler {
         let event = if pressed {
             InputEvent::KeyboardPressed {
                 key,
-                modifiers: self.keyboard_modifiers.clone(),
+                modifiers: self.keyboard_modifiers,
             }
         } else {
             InputEvent::KeyboardReleased {
                 key,
-                modifiers: self.keyboard_modifiers.clone(),
+                modifiers: self.keyboard_modifiers,
             }
         };
 
@@ -116,12 +121,12 @@ impl InputHandler {
         let event = if pressed {
             InputEvent::MousePressed {
                 button,
-                modifiers: self.keyboard_modifiers.clone(),
+                modifiers: self.keyboard_modifiers,
             }
         } else {
             InputEvent::MouseReleased {
                 button,
-                modifiers: self.keyboard_modifiers.clone(),
+                modifiers: self.keyboard_modifiers,
             }
         };
 
@@ -148,8 +153,8 @@ impl InputHandler {
         }
         self.mouse_wheel_delta = [0.0, 0.0];
         self.mouse_previous_position = [self.mouse_position[0], self.mouse_position[1]];
-        self.previous_keyboard_state = self.keyboard_state.clone();
-        self.previous_mouse_button_state = self.mouse_button_state.clone();
+        self.previous_keyboard_state = self.keyboard_state;
+        self.previous_mouse_button_state = self.mouse_button_state;
         Ok(())
     }
 }

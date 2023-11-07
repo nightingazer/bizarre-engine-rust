@@ -1,13 +1,10 @@
-use std::sync::Arc;
-
+use anyhow::Result;
+use bizarre_core::input::InputHandler;
+use bizarre_core::input::MouseButton;
 use bizarre_core::{
     app_events::AppCloseRequestedEvent,
-    input::{input::InputHandler, mouse_button::MouseButton},
     layer::Layer,
-    specs::{
-        self, shred::Resource, storage::AccessMut, Builder, Read, ReadStorage, RunNow, System,
-        WorldExt, Write,
-    },
+    specs::{self, Builder, Read, ReadStorage, RunNow, System, WorldExt, Write},
     timing::DeltaTime,
 };
 use bizarre_render::{
@@ -17,12 +14,11 @@ use bizarre_render::{
     renderer::{create_renderer, Renderer, RendererBackend},
     vertex::CUBE_VERTICES,
 };
-use nalgebra_glm::radians;
-use winit::platform::run_return::EventLoopExtRunReturn;
+use winit::{event_loop::ControlFlow, platform::run_return::EventLoopExtRunReturn};
 
 pub struct VisualLayer {
     event_loop: winit::event_loop::EventLoop<()>,
-    window: winit::window::Window,
+    _window: winit::window::Window,
     renderer: Box<dyn Renderer>,
 }
 
@@ -37,9 +33,15 @@ impl VisualLayer {
         let renderer = create_renderer(&window, RendererBackend::Vulkan).unwrap();
         Self {
             event_loop,
-            window,
+            _window: window,
             renderer,
         }
+    }
+}
+
+impl Default for VisualLayer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -89,9 +91,9 @@ impl<'a> System<'a> for CubeSystem {
 impl Layer for VisualLayer {
     fn on_attach(
         &mut self,
-        event_bus: &bizarre_events::observer::EventBus,
+        _: &bizarre_events::observer::EventBus,
         world: &mut bizarre_core::specs::World,
-    ) {
+    ) -> Result<()> {
         let mut submitter = RenderSubmitter::new();
         submitter.set_clear_color([0.3, 0.2, 0.5, 1.0]);
         submitter.set_ambient_light(bizarre_render::render_math::AmbientLight {
@@ -108,18 +110,29 @@ impl Layer for VisualLayer {
         world.register::<CubeMesh>();
 
         world.create_entity().with(CubeMesh {}).build();
+
+        Ok(())
     }
 
     fn on_update(
         &mut self,
         event_bus: &bizarre_events::observer::EventBus,
         world: &mut bizarre_core::specs::World,
-    ) {
+    ) -> Result<()> {
         let mut cube_sys = CubeSystem;
         cube_sys.run_now(world);
         world.maintain();
 
         let mut input_handler = world.write_resource::<InputHandler>();
+
+        let mut update_result: Result<()> = Ok(());
+
+        let mut check_result_and_throw = |r: Result<()>, c: &mut ControlFlow| {
+            if let Err(e) = r {
+                update_result = Err(e);
+                *c = ControlFlow::Exit;
+            }
+        };
 
         self.event_loop
             .run_return(|event, _, control_flow| match event {
@@ -127,7 +140,8 @@ impl Layer for VisualLayer {
                     *control_flow = winit::event_loop::ControlFlow::Exit;
                     let mut submitter = world.write_resource::<RenderSubmitter>();
                     let render_package = submitter.finalize_submission();
-                    self.renderer.render(render_package).unwrap();
+                    let result = self.renderer.render(render_package);
+                    check_result_and_throw(result, control_flow);
                 }
                 winit::event::Event::WindowEvent { event, .. } => match event {
                     winit::event::WindowEvent::CloseRequested => {
@@ -136,7 +150,8 @@ impl Layer for VisualLayer {
                     }
                     winit::event::WindowEvent::Resized(size) => {
                         let size = [size.width, size.height];
-                        self.renderer.resize(size);
+                        let r = self.renderer.resize(size);
+                        check_result_and_throw(r, control_flow);
                     }
                     winit::event::WindowEvent::KeyboardInput { input, .. } => {
                         let keycode = input.scancode as u16;
@@ -144,11 +159,13 @@ impl Layer for VisualLayer {
                             winit::event::ElementState::Pressed => true,
                             winit::event::ElementState::Released => false,
                         };
-                        input_handler.process_keyboard(keycode, pressed, event_bus);
+                        let r = input_handler.process_keyboard(keycode, pressed, event_bus);
+                        check_result_and_throw(r, control_flow);
                     }
                     winit::event::WindowEvent::CursorMoved { position, .. } => {
-                        input_handler
+                        let r = input_handler
                             .process_mouse_move([position.x as f32, position.y as f32], event_bus);
+                        check_result_and_throw(r, control_flow);
                     }
                     winit::event::WindowEvent::MouseInput { state, button, .. } => {
                         let pressed = match state {
@@ -164,7 +181,8 @@ impl Layer for VisualLayer {
                                 MouseButton::Other(id)
                             }
                         };
-                        input_handler.process_mouse_button(button, pressed, event_bus);
+                        let r = input_handler.process_mouse_button(button, pressed, event_bus);
+                        check_result_and_throw(r, control_flow);
                     }
                     winit::event::WindowEvent::MouseWheel { delta, .. } => {
                         let delta = match delta {
@@ -173,18 +191,14 @@ impl Layer for VisualLayer {
                                 [position.x as f32, position.y as f32]
                             }
                         };
-                        input_handler.process_mouse_scroll(delta);
+                        let r = input_handler.process_mouse_scroll(delta);
+                        check_result_and_throw(r, control_flow);
                     }
                     _ => (),
                 },
                 _ => (),
             });
-    }
 
-    fn on_detach(
-        &mut self,
-        event_bus: &bizarre_events::observer::EventBus,
-        world: &mut bizarre_core::specs::World,
-    ) {
+        update_result
     }
 }

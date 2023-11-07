@@ -34,6 +34,8 @@ pub fn app_logger_init(logger: Option<Logger>) -> Result<(), LogError> {
     }
 }
 
+/// # Safety
+/// - This function must be called only after the `app_logger_init` function.
 pub unsafe fn app_logger() -> Arc<Mutex<Logger>> {
     if !APP_LOGGER_INIT.is_completed() {
         panic!("app_logger is called before the app_logger_init");
@@ -64,6 +66,8 @@ pub fn core_logger_init(logger: Option<Logger>) -> Result<(), LogError> {
     }
 }
 
+/// # Safety
+/// - This function must be called only after the `core_logger_init` function.
 pub unsafe fn core_logger() -> Arc<Mutex<Logger>> {
     if !CORE_LOGGER_INIT.is_completed() {
         panic!("core_logger is called before the core_logger_init");

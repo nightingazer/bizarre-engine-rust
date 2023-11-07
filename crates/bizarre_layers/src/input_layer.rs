@@ -1,5 +1,7 @@
-use bizarre_core::{input::input::InputHandler, layer::Layer, specs::WorldExt};
+use anyhow::Result;
+use bizarre_core::{input::InputHandler, layer::Layer};
 use bizarre_events::observer::EventBus;
+use specs::WorldExt;
 
 pub struct InputLayer {}
 
@@ -9,13 +11,20 @@ impl InputLayer {
     }
 }
 
+impl Default for InputLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Layer for InputLayer {
-    fn on_attach(&mut self, event_bus: &EventBus, world: &mut bizarre_core::specs::World) {
+    fn on_attach(&mut self, _: &EventBus, world: &mut specs::World) -> Result<()> {
         world.insert(InputHandler::new());
+        Ok(())
     }
 
-    fn on_update(&mut self, event_bus: &EventBus, world: &mut bizarre_core::specs::World) {
+    fn on_update(&mut self, event_bus: &EventBus, world: &mut specs::World) -> Result<()> {
         let mut input_handler = world.write_resource::<InputHandler>();
-        input_handler.update(event_bus);
+        input_handler.update(event_bus)
     }
 }

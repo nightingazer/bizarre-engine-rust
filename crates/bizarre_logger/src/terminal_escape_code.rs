@@ -59,9 +59,9 @@ impl From<&LogLevel> for TerminalEscapeSequence {
     }
 }
 
-impl Into<String> for &TerminalEscapeSequence {
-    fn into(self) -> String {
-        let codes = self
+impl From<&TerminalEscapeSequence> for String {
+    fn from(value: &TerminalEscapeSequence) -> String {
+        let codes = value
             .0
             .iter()
             .map(|c| c.to_string())

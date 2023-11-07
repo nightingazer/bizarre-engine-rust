@@ -33,9 +33,8 @@ impl<O: Observer + 'static> InternalSystem<O> {
     {
         let handler = self.handlers.get_dyn_mut::<dyn Handler<E, O>>();
         let state = unsafe { &mut *self.state };
-        match handler {
-            Some(handler) => handler.handle(state, event),
-            None => {}
+        if let Some(handler) = handler {
+            handler.handle(state, event)
         }
     }
 
@@ -53,7 +52,7 @@ impl<O: Observer> SyncObserver<O> {
     pub fn new(observer: &mut O) -> Self {
         Self(Arc::new(Mutex::new(InternalSystem {
             state: observer as *mut O,
-            handlers: ErasedStorage::new(),
+            handlers: ErasedStorage::default(),
         })))
     }
 }
@@ -97,7 +96,16 @@ where
 
 pub struct SyncEventBus<E: Event + 'static>(RwLock<TypedEventBus<E>>);
 
+impl<E: Event + 'static> Default for SyncEventBus<E> {
+    fn default() -> Self {
+        Self(RwLock::new(TypedEventBus::<E> {
+            listeners: Vec::new(),
+        }))
+    }
+}
+
 impl<E: Event + 'static> SyncEventBus<E> {
+    #[deprecated]
     pub fn new() -> Self {
         Self(RwLock::new(TypedEventBus::<E> {
             listeners: Vec::new(),
@@ -116,7 +124,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct EventBus {
     buses: Arc<RwLock<ErasedStorage>>,
 }
@@ -124,7 +132,7 @@ pub struct EventBus {
 impl EventBus {
     pub fn new() -> Self {
         Self {
-            buses: Arc::new(RwLock::new(ErasedStorage::new())),
+            buses: Arc::new(RwLock::new(ErasedStorage::default())),
         }
     }
 
@@ -134,7 +142,7 @@ impl EventBus {
         F: FnOnce(&SyncEventBus<E>),
     {
         let mut lock = self.buses.write().expect("Poisoned RwLock");
-        lock.put(SyncEventBus::<E>::new());
+        lock.put(SyncEventBus::<E>::default());
 
         let bus = lock.get().unwrap();
         f(bus);

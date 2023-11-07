@@ -6,7 +6,18 @@ pub struct ModelViewProjection {
     pub projection: TMat4<f32>,
 }
 
+impl Default for ModelViewProjection {
+    fn default() -> Self {
+        Self {
+            model: identity(),
+            view: identity(),
+            projection: identity(),
+        }
+    }
+}
+
 impl ModelViewProjection {
+    #[deprecated]
     pub fn new() -> Self {
         Self {
             model: identity(),

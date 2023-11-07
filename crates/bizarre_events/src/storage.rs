@@ -6,12 +6,17 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+#[derive(Default)]
 pub struct ErasedStorage {
     items: HashMap<TypeId, Box<dyn Any>>,
     dyn_items: HashMap<TypeId, ThinBox<dyn Any>>,
 }
 
+unsafe impl Send for ErasedStorage {}
+unsafe impl Sync for ErasedStorage {}
+
 impl ErasedStorage {
+    #[deprecated]
     pub fn new() -> Self {
         Self {
             items: Default::default(),

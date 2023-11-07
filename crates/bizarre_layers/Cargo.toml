@@ -11,5 +11,7 @@ bizarre_events = { path = "../bizarre_events" }
 bizarre_render = { path = "../bizarre_render" }
 
 nalgebra-glm = { workspace = true }
+anyhow = { workspace = true }
+specs = { workspace = true }
 
 winit = "0.28.7"
