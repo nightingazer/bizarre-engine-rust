@@ -1,18 +1,18 @@
 use std::default;
 
+use nalgebra_glm::{vec3, Vec3};
 use specs::{Component, VecStorage};
 
-#[derive(Debug)]
-pub struct CubeMesh {}
+use crate::mesh::Mesh;
 
-impl Component for CubeMesh {
+impl Component for Mesh {
     type Storage = VecStorage<Self>;
 }
 
 pub struct Transform {
-    pub position: [f32; 3],
-    pub rotation: [f32; 3],
-    pub scale: [f32; 3],
+    pub position: Vec3,
+    pub rotation: Vec3,
+    pub scale: Vec3,
 }
 
 impl Default for Transform {
@@ -20,7 +20,7 @@ impl Default for Transform {
         Self {
             position: Default::default(),
             rotation: Default::default(),
-            scale: [1.0; 3],
+            scale: vec3(1.0, 1.0, 1.0),
         }
     }
 }

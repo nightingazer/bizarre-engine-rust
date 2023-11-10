@@ -7,22 +7,22 @@ use bizarre_core::{
     specs::{self, Builder, Read, ReadStorage, RunNow, System, WorldExt, Write},
     timing::DeltaTime,
 };
+use bizarre_render::mesh::Mesh;
 use bizarre_render::render_components::Transform;
 use bizarre_render::vertex::VertexData;
 use bizarre_render::{
-    render_components::CubeMesh,
     render_math::DirectionalLight,
     render_submitter::RenderSubmitter,
     renderer::{create_renderer, Renderer, RendererBackend},
-    vertex::CUBE_VERTICES,
 };
-use nalgebra_glm::radians;
 use nalgebra_glm::rotate;
+use nalgebra_glm::vec3_to_vec4;
+use nalgebra_glm::vec4;
+use nalgebra_glm::vec4_to_vec3;
 use nalgebra_glm::Mat4;
 use nalgebra_glm::TMat4;
 use nalgebra_glm::Vec3;
 use specs::Join;
-use specs::WriteStorage;
 use winit::{event_loop::ControlFlow, platform::run_return::EventLoopExtRunReturn};
 
 pub struct VisualLayer {
@@ -71,48 +71,58 @@ impl<'a> System<'a> for LightSystem {
     }
 }
 
-struct CubeSystem;
+struct MeshSystem;
 
-impl<'a> System<'a> for CubeSystem {
+impl<'a> System<'a> for MeshSystem {
     type SystemData = (
         Write<'a, RenderSubmitter>,
-        ReadStorage<'a, CubeMesh>,
-        WriteStorage<'a, Transform>,
-        Read<'a, DeltaTime>,
+        ReadStorage<'a, Mesh>,
+        ReadStorage<'a, Transform>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
-        let (mut submitter, cubes, mut transforms, delta_time) = data;
+        let (mut submitter, meshes, transforms) = data;
 
-        let delta_time = delta_time.0;
-        let rotation_speed = 90.0f32;
+        let mut transformed_meshes: Vec<Mesh> = Vec::with_capacity(meshes.count());
 
-        for (_cube, transform) in (&cubes, &mut transforms).join() {
-            transform.rotation[1] += rotation_speed * delta_time;
-            let axis = Vec3::y_axis();
-            let angle = transform.rotation[1] * std::f32::consts::PI / 180.0;
-            let rotation = rotate(&TMat4::identity(), angle, &axis);
+        for (mesh, transform) in (&meshes, &transforms).join() {
+            let mut model = Mat4::identity();
+            model = rotate(&model, transform.rotation[0], &Vec3::x_axis());
+            model = rotate(&model, transform.rotation[1], &Vec3::y_axis());
+            model = rotate(&model, transform.rotation[2], &Vec3::z_axis());
+            model = model.append_nonuniform_scaling(&transform.scale);
+            model *= Mat4::new_translation(&transform.position);
 
-            let vertices = CUBE_VERTICES
-                .to_vec()
+            let vertices = mesh
+                .vertices
                 .iter()
-                .map(|vertex| {
-                    let vec_3_pos = Vec3::from(vertex.position);
-                    let vec_3_pos = rotation.transform_vector(&vec_3_pos);
-                    let position: [f32; 3] = vec_3_pos.into();
-                    let vec_3_normal = Vec3::from(vertex.normal);
-                    let vec_3_normal = rotation.transform_vector(&vec_3_normal);
-                    let normal: [f32; 3] = vec_3_normal.into();
+                .cloned()
+                .map(|v| {
+                    let mut position = vec3_to_vec4(&v.position);
+                    position.w = 1.0;
+                    let position = model * position;
+                    let position = vec4_to_vec3(&position);
+                    let mut normal = vec3_to_vec4(&v.normal);
+                    normal.w = 0.0;
+                    let normal = model * normal;
+                    let normal = vec4_to_vec3(&normal);
                     VertexData {
-                        color: vertex.color,
                         position,
                         normal,
+                        color: v.color,
                     }
                 })
                 .collect::<Vec<_>>();
 
-            submitter.submit_vertices(vertices);
+            let transformed_mesh = Mesh {
+                vertices,
+                indices: mesh.indices.clone(),
+            };
+
+            transformed_meshes.push(transformed_mesh);
         }
+
+        submitter.submit_meshes(&transformed_meshes);
     }
 }
 
@@ -131,15 +141,10 @@ impl Layer for VisualLayer {
 
         world.insert(submitter);
 
-        world.register::<CubeMesh>();
+        world.register::<Mesh>();
         world.register::<Transform>();
         world.register::<DirectionalLight>();
 
-        world
-            .create_entity()
-            .with(CubeMesh {})
-            .with(Transform::default())
-            .build();
         world
             .create_entity()
             .with(DirectionalLight {
@@ -170,10 +175,12 @@ impl Layer for VisualLayer {
         event_bus: &bizarre_events::observer::EventBus,
         world: &mut bizarre_core::specs::World,
     ) -> Result<()> {
-        let mut cube_sys = CubeSystem;
-        cube_sys.run_now(world);
         let mut lights_sys = LightSystem;
         lights_sys.run_now(world);
+
+        let mut mesh_sys = MeshSystem;
+        mesh_sys.run_now(world);
+
         world.maintain();
 
         let mut input_handler = world.write_resource::<InputHandler>();

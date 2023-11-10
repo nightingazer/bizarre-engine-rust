@@ -152,9 +152,30 @@ impl InputHandler {
             event_bus.push_event(event);
         }
         self.mouse_wheel_delta = [0.0, 0.0];
-        self.mouse_previous_position = [self.mouse_position[0], self.mouse_position[1]];
+        self.mouse_previous_position = self.mouse_position;
         self.previous_keyboard_state = self.keyboard_state;
         self.previous_mouse_button_state = self.mouse_button_state;
         Ok(())
+    }
+
+    pub fn is_key_pressed(&self, key: &KeyboardKey, modifiers: &KeyboardModifiers) -> bool {
+        self.keyboard_state[u16::from(*key) as usize]
+            && self.keyboard_modifiers.bits() == modifiers.bits()
+    }
+
+    pub fn is_button_pressed(&self, button: &MouseButton, modifiers: &KeyboardModifiers) -> bool {
+        self.mouse_button_state[u8::from(*button) as usize]
+            && self.keyboard_modifiers.bits() == modifiers.bits()
+    }
+
+    pub fn mouse_delta(&self) -> [f32; 2] {
+        let mut delta = self.mouse_position;
+        delta[0] -= self.mouse_previous_position[0];
+        delta[1] -= self.mouse_previous_position[1];
+        delta
+    }
+
+    pub fn scroll_delta(&self) -> [f32; 2] {
+        self.mouse_wheel_delta
     }
 }

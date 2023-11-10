@@ -8,7 +8,7 @@ use vulkano::instance::debug::{
 };
 use vulkano::pipeline::Pipeline;
 use vulkano::render_pass::Subpass;
-use vulkano::swapchain::Swapchain;
+use vulkano::swapchain::{SurfaceTransform, SurfaceTransforms, Swapchain};
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
@@ -34,7 +34,7 @@ use vulkano::{
 };
 use vulkano_win::create_surface_from_handle_ref;
 
-use crate::{render_math::ModelViewProjection, render_package::RenderPackage, renderer::Renderer};
+use crate::{render_math::ViewProjection, render_package::RenderPackage, renderer::Renderer};
 
 use super::pipeline::create_graphics_pipeline;
 use super::render_pass::create_render_pass;
@@ -370,19 +370,34 @@ impl Renderer for VulkanRenderer {
             vertices,
         )?;
 
+        let index_buffer = {
+            let indices = render_package.indices.clone();
+            Buffer::from_iter(
+                &memory_allocator,
+                BufferCreateInfo {
+                    usage: BufferUsage::INDEX_BUFFER,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    usage: MemoryUsage::Upload,
+                    ..Default::default()
+                },
+                indices,
+            )?
+        };
+
         let mvp_data = {
-            let mut mvp = ModelViewProjection::default();
+            let mut mvp = ViewProjection::default();
 
             let aspect_ratio = self.surface_size[0] as f32 / self.surface_size[1] as f32;
             mvp.projection = perspective(aspect_ratio, half_pi(), 0.01, 100.0);
             mvp.view = look_at(
-                &vec3(0.0, -3.5, 5.0),
+                &render_package.camera_position,
                 &vec3(0.0, 0.0, 0.0),
                 &vec3(0.0, 1.0, 0.0),
             );
 
             crate::render::vulkan::shaders::deferred_vert::MVP_Data {
-                model: mvp.model.into(),
                 projection: mvp.projection.into(),
                 view: mvp.view.into(),
             }
@@ -463,7 +478,8 @@ impl Renderer for VulkanRenderer {
                 deferred_set.clone(),
             )
             .bind_vertex_buffers(0, vertex_buffer.clone())
-            .draw(vertex_buffer.len() as u32, 1, 0, 0)?
+            .bind_index_buffer(index_buffer.clone())
+            .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)?
             .next_subpass(SubpassContents::Inline)?
             .bind_pipeline_graphics(self.ambient_pipeline.clone())
             .bind_descriptor_sets(
@@ -472,7 +488,7 @@ impl Renderer for VulkanRenderer {
                 0,
                 ambient_set.clone(),
             )
-            .draw(vertex_buffer.len() as u32, 1, 0, 0)?
+            .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)?
             .bind_pipeline_graphics(self.directional_pipeline.clone());
 
         for light in render_package.directional_lights {
@@ -519,7 +535,7 @@ impl Renderer for VulkanRenderer {
                     0,
                     directional_set.clone(),
                 )
-                .draw(vertex_buffer.len() as u32, 1, 0, 0)?;
+                .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)?;
         }
 
         cmd_buffer_builder.end_render_pass()?;
@@ -571,7 +587,8 @@ fn window_size_dependent_setup(
     Arc<ImageView<AttachmentImage>>,
 )> {
     let dimensions = images[0].dimensions().width_height();
-    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+    viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
+    viewport.origin = [0.0, dimensions[1] as f32];
 
     let color_buffer = ImageView::new_default(AttachmentImage::transient_input_attachment(
         allocator,

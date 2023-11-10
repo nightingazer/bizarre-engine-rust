@@ -16,9 +16,9 @@ pub struct VulkanVertexData {
 impl From<VertexData> for VulkanVertexData {
     fn from(value: VertexData) -> Self {
         Self {
-            position: value.position,
-            color: value.color,
-            normal: value.normal,
+            position: value.position.into(),
+            color: value.color.into(),
+            normal: value.normal.into(),
         }
     }
 }

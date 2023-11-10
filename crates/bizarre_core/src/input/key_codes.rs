@@ -32,6 +32,15 @@ macro_rules! key_codes {
             }
         }
 
+        impl From<$enum_name> for $type {
+                fn from(value: $enum_name) -> Self {
+                        match value {
+                                $($enum_name::$name => __expand_value!($l, $w)),*,
+                                $enum_name::Unknown(value) => value,
+                        }
+                }
+        }
+
         impl Display for $enum_name {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
                 match self {

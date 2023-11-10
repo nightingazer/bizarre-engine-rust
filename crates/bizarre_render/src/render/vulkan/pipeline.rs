@@ -8,7 +8,7 @@ use vulkano::{
             color_blend::{AttachmentBlend, BlendFactor, BlendOp, ColorBlendState},
             depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
-            rasterization::{CullMode, RasterizationState},
+            rasterization::{CullMode, FrontFace, RasterizationState},
             render_pass::PipelineRenderPassType,
             vertex_input::Vertex,
             viewport::ViewportState,
