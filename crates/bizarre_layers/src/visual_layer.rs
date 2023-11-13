@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use bizarre_core::input::InputHandler;
 use bizarre_core::input::MouseButton;
@@ -7,8 +9,8 @@ use bizarre_core::{
     specs::{self, Builder, Read, ReadStorage, RunNow, System, WorldExt, Write},
     timing::DeltaTime,
 };
-use bizarre_render::mesh::Mesh;
-use bizarre_render::render_components::Transform;
+use bizarre_render::render_components::transform::Transform;
+use bizarre_render::render_components::Mesh;
 use bizarre_render::vertex::VertexData;
 use bizarre_render::{
     render_math::DirectionalLight,
@@ -17,40 +19,42 @@ use bizarre_render::{
 };
 use nalgebra_glm::rotate;
 use nalgebra_glm::vec3_to_vec4;
-use nalgebra_glm::vec4;
 use nalgebra_glm::vec4_to_vec3;
 use nalgebra_glm::Mat4;
-use nalgebra_glm::TMat4;
 use nalgebra_glm::Vec3;
 use specs::Join;
 use winit::{event_loop::ControlFlow, platform::run_return::EventLoopExtRunReturn};
 
 pub struct VisualLayer {
     event_loop: winit::event_loop::EventLoop<()>,
-    _window: winit::window::Window,
+    _window: Arc<winit::window::Window>,
     renderer: Box<dyn Renderer>,
 }
 
 impl VisualLayer {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         let event_loop = winit::event_loop::EventLoop::new();
         let window = winit::window::WindowBuilder::new()
             .with_title("Bizarre Engine")
             .build(&event_loop)
             .unwrap();
 
-        let renderer = create_renderer(&window, RendererBackend::Vulkan).unwrap();
-        Self {
+        let window = Arc::new(window);
+
+        let renderer = create_renderer(window.clone(), RendererBackend::Vulkan);
+        let renderer = match renderer {
+            Ok(r) => r,
+            Err(e) => {
+                println!("Failed to create renderer: {:?}", e);
+                return Err(e);
+            }
+        };
+
+        Ok(Self {
             event_loop,
             _window: window,
             renderer,
-        }
-    }
-}
-
-impl Default for VisualLayer {
-    fn default() -> Self {
-        Self::new()
+        })
     }
 }
 
@@ -135,8 +139,8 @@ impl Layer for VisualLayer {
         let mut submitter = RenderSubmitter::new();
         submitter.set_clear_color([0.0, 0.0, 0.0, 1.0]);
         submitter.set_ambient_light(bizarre_render::render_math::AmbientLight {
-            color: [0.1, 0.1, 0.1],
-            intensity: 0.5,
+            color: [1.0, 1.0, 1.0],
+            intensity: 0.3,
         });
 
         world.insert(submitter);
@@ -148,22 +152,8 @@ impl Layer for VisualLayer {
         world
             .create_entity()
             .with(DirectionalLight {
-                color: [0.4, 0.1, 0.1],
-                position: [0.0, -10.0, 5.0],
-            })
-            .build();
-        world
-            .create_entity()
-            .with(DirectionalLight {
-                color: [0.1, 0.4, 0.1],
-                position: [-10.0, 0.0, 5.0],
-            })
-            .build();
-        world
-            .create_entity()
-            .with(DirectionalLight {
-                color: [0.1, 0.1, 0.4],
-                position: [10.0, 0.0, 5.0],
+                color: [1.0, 1.0, 1.0],
+                position: [7.5, 10.0, 10.0],
             })
             .build();
 

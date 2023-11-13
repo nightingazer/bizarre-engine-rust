@@ -1,10 +1,15 @@
 use anyhow::Result;
+use specs::{Component, VecStorage};
 
 use crate::vertex::VertexData;
 
 pub struct Mesh {
     pub vertices: Vec<VertexData>,
     pub indices: Vec<u32>,
+}
+
+impl Component for Mesh {
+    type Storage = VecStorage<Self>;
 }
 
 impl Mesh {

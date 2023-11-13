@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use anyhow::Result;
+use nalgebra_glm::Mat4;
 
 use crate::{render_package::RenderPackage, vulkan::vulkan_renderer::VulkanRenderer};
 
 pub trait Renderer {
-    fn new(window: &winit::window::Window) -> Result<Self>
+    fn new(window: Arc<winit::window::Window>) -> Result<Self>
     where
         Self: Sized;
     fn destroy(&self) -> Result<()>;
@@ -11,6 +14,8 @@ pub trait Renderer {
     fn render(&mut self, render_package: RenderPackage) -> Result<()>;
 
     fn resize(&mut self, size: [u32; 2]) -> Result<()>;
+
+    fn set_view_projection(&mut self, vp: Mat4) -> Result<()>;
 }
 
 pub enum RendererBackend {
@@ -21,7 +26,7 @@ pub enum RendererBackend {
 }
 
 pub fn create_renderer(
-    window: &winit::window::Window,
+    window: Arc<winit::window::Window>,
     backend: RendererBackend,
 ) -> Result<Box<dyn Renderer>> {
     let renderer = match backend {

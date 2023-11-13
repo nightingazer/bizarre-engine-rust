@@ -3,7 +3,9 @@ use bizarre_core::{
     layer::Layer,
 };
 use bizarre_render::render_submitter::RenderSubmitter;
-use nalgebra_glm::{quat_angle, quat_angle_axis, quat_rotate_vec3, rotate, vec3, Quat, Vec2, Vec3};
+use nalgebra_glm::{
+    quat_angle, quat_angle_axis, quat_rotate_vec3, rotate, vec3, Mat4, Quat, Vec2, Vec3,
+};
 use specs::{
     Builder, Component, Join, Read, RunNow, System, VecStorage, WorldExt, Write, WriteStorage,
 };
@@ -14,6 +16,8 @@ pub struct Camera {
     yaw: f32,
     pitch: f32,
     distance: f32,
+    view: Mat4,
+    projection: Mat4,
 }
 
 impl Default for Camera {
@@ -22,6 +26,8 @@ impl Default for Camera {
             yaw: 0.0,
             pitch: 0.0,
             distance: 5.0,
+            view: Mat4::identity(),
+            projection: Mat4::identity(),
         }
     }
 }
@@ -54,8 +60,10 @@ impl<'a> System<'a> for CameraSystem {
 
             let scroll_delta = input.scroll_delta();
             if scroll_delta[1] != 0.0 {
-                let zoom_speed = (0.1 * camera.distance).clamp(0.01, 10.0);
+                let distance_fraction = camera.distance / 5.0;
+                let zoom_speed = (distance_fraction * distance_fraction).clamp(0.01, 20.0);
                 camera.distance -= scroll_delta[1] * zoom_speed;
+                camera.distance = camera.distance.max(0.1);
             }
 
             let position: Vec3 = vec3(0.0, 0.0, camera.distance);

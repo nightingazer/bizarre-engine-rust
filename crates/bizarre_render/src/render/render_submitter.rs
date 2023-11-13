@@ -1,7 +1,7 @@
 use nalgebra_glm::Vec3;
 
 use crate::{
-    mesh::Mesh,
+    render_components::Mesh,
     render_math::{AmbientLight, DirectionalLight},
     render_package::RenderPackage,
     vertex::VertexData,
