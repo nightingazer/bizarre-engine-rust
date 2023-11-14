@@ -9,8 +9,9 @@ use bizarre_engine::{
     },
     layers::{camera_layer::CameraLayer, input_layer::InputLayer, visual_layer::VisualLayer},
     log::{app_logger_init, core_logger_init},
-    render::{mesh::Mesh, render_components::Transform},
+    render::render_components::{Mesh, Transform},
 };
+use nalgebra_glm::{quat_angle, quat_angle_axis, quat_axis, quat_euler_angles, vec3, Mat4, Vec3};
 
 struct CubesLayer;
 
@@ -41,14 +42,35 @@ impl Layer for CubesLayer {
         world
             .create_entity()
             .with(Transform {
-                position: [0.0, -2.5, 0.0].into(),
+                position: [-2.5, 2.5, 0.0].into(),
                 ..Default::default()
             })
             .with(Mesh::from_obj("assets/models/monkey.obj".to_string())?)
             .build();
 
+        world
+            .create_entity()
+            .with(Transform {
+                position: [2.5, 2.5, 0.0].into(),
+                ..Default::default()
+            })
+            .with(Mesh::from_obj(
+                "assets/models/smooth_monkey.obj".to_string(),
+            )?)
+            .build();
+
         Ok(())
     }
+}
+
+fn print_transform(transform: &Transform, label: &str) {
+    println!(
+        "{}:\n\t{:?}\n\t{:?}\n\t{:?}",
+        label,
+        transform.position,
+        transform.scale,
+        quat_euler_angles(&transform.rotation)
+    );
 }
 
 fn main() {
@@ -56,9 +78,11 @@ fn main() {
     app_logger_init(None).expect("Failed to init app logger");
 
     let mut app = App::new("Bizarre Engine");
-    let _ = app.add_layer(CameraLayer);
+    let _ = app.add_layer(CameraLayer::default());
     let _ = app.add_layer(InputLayer::new());
-    let _ = app.add_layer(VisualLayer::new());
+
+    let vis_layer = VisualLayer::new().expect("Failed to create visual layer");
+    let _ = app.add_layer(vis_layer);
 
     let _ = app.add_layer(CubesLayer);
     app.run();

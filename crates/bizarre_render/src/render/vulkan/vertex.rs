@@ -22,3 +22,35 @@ impl From<VertexData> for VulkanVertexData {
         }
     }
 }
+
+#[repr(C)]
+#[derive(BufferContents, Vertex, Clone)]
+pub struct DummyVertexData {
+    #[format(R32G32_SFLOAT)]
+    pub position: [f32; 2],
+}
+
+impl DummyVertexData {
+    pub fn list() -> [DummyVertexData; 6] {
+        [
+            DummyVertexData {
+                position: [-1.0, -1.0],
+            },
+            DummyVertexData {
+                position: [1.0, -1.0],
+            },
+            DummyVertexData {
+                position: [-1.0, 1.0],
+            },
+            DummyVertexData {
+                position: [1.0, -1.0],
+            },
+            DummyVertexData {
+                position: [1.0, 1.0],
+            },
+            DummyVertexData {
+                position: [-1.0, 1.0],
+            },
+        ]
+    }
+}

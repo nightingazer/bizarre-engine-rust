@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use bizarre_core::core_events::WindowResized;
 use bizarre_core::input::InputHandler;
 use bizarre_core::input::MouseButton;
 use bizarre_core::{
@@ -17,11 +18,9 @@ use bizarre_render::{
     render_submitter::RenderSubmitter,
     renderer::{create_renderer, Renderer, RendererBackend},
 };
-use nalgebra_glm::rotate;
 use nalgebra_glm::vec3_to_vec4;
 use nalgebra_glm::vec4_to_vec3;
 use nalgebra_glm::Mat4;
-use nalgebra_glm::Vec3;
 use specs::Join;
 use winit::{event_loop::ControlFlow, platform::run_return::EventLoopExtRunReturn};
 
@@ -90,12 +89,7 @@ impl<'a> System<'a> for MeshSystem {
         let mut transformed_meshes: Vec<Mesh> = Vec::with_capacity(meshes.count());
 
         for (mesh, transform) in (&meshes, &transforms).join() {
-            let mut model = Mat4::identity();
-            model = rotate(&model, transform.rotation[0], &Vec3::x_axis());
-            model = rotate(&model, transform.rotation[1], &Vec3::y_axis());
-            model = rotate(&model, transform.rotation[2], &Vec3::z_axis());
-            model = model.append_nonuniform_scaling(&transform.scale);
-            model *= Mat4::new_translation(&transform.position);
+            let model = Mat4::from(transform);
 
             let vertices = mesh
                 .vertices
@@ -133,13 +127,13 @@ impl<'a> System<'a> for MeshSystem {
 impl Layer for VisualLayer {
     fn on_attach(
         &mut self,
-        _: &bizarre_events::observer::EventBus,
+        event_bus: &bizarre_events::observer::EventBus,
         world: &mut bizarre_core::specs::World,
     ) -> Result<()> {
         let mut submitter = RenderSubmitter::new();
         submitter.set_clear_color([0.0, 0.0, 0.0, 1.0]);
-        submitter.set_ambient_light(bizarre_render::render_math::AmbientLight {
-            color: [1.0, 1.0, 1.0],
+        submitter.submit_ambient_light(bizarre_render::render_math::AmbientLight {
+            color: [0.6, 0.9, 1.0],
             intensity: 0.3,
         });
 
@@ -152,10 +146,15 @@ impl Layer for VisualLayer {
         world
             .create_entity()
             .with(DirectionalLight {
-                color: [1.0, 1.0, 1.0],
+                color: [1.0, 0.8, 0.6],
                 position: [7.5, 10.0, 10.0],
             })
             .build();
+
+        event_bus.push_event(WindowResized {
+            width: self._window.inner_size().width as f32,
+            height: self._window.inner_size().height as f32,
+        });
 
         Ok(())
     }
@@ -201,6 +200,10 @@ impl Layer for VisualLayer {
                     winit::event::WindowEvent::Resized(size) => {
                         let size = [size.width, size.height];
                         let r = self.renderer.resize(size);
+                        event_bus.push_event(WindowResized {
+                            width: size[0] as f32,
+                            height: size[1] as f32,
+                        });
                         check_result_and_throw(r, control_flow);
                     }
                     winit::event::WindowEvent::KeyboardInput { input, .. } => {

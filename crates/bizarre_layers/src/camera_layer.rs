@@ -1,61 +1,85 @@
 use bizarre_core::{
-    input::{InputHandler, KeyboardModifiers, MouseButton},
+    core_events::WindowResized,
+    input::{InputHandler, KeyboardKey, KeyboardModifiers, MouseButton},
     layer::Layer,
+    timing::DeltaTime,
 };
-use bizarre_render::render_submitter::RenderSubmitter;
-use nalgebra_glm::{
-    quat_angle, quat_angle_axis, quat_rotate_vec3, rotate, vec3, Mat4, Quat, Vec2, Vec3,
+use bizarre_events::observer::{self, Observer};
+use bizarre_render::{
+    render_components::{Camera, CameraProjection},
+    render_submitter::RenderSubmitter,
 };
-use specs::{
-    Builder, Component, Join, Read, RunNow, System, VecStorage, WorldExt, Write, WriteStorage,
-};
+use nalgebra_glm::{quat_angle, quat_angle_axis, quat_axis, vec2, Quat, Vec2, Vec3};
+use specs::{Builder, Join, Read, RunNow, System, WorldExt, Write, WriteStorage};
 
-pub struct CameraLayer;
-
-pub struct Camera {
-    yaw: f32,
-    pitch: f32,
-    distance: f32,
-    view: Mat4,
-    projection: Mat4,
+struct CameraSystem {
+    updated_aspect_ratio: Option<f32>,
 }
-
-impl Default for Camera {
-    fn default() -> Self {
-        Self {
-            yaw: 0.0,
-            pitch: 0.0,
-            distance: 5.0,
-            view: Mat4::identity(),
-            projection: Mat4::identity(),
-        }
-    }
-}
-
-impl Component for Camera {
-    type Storage = VecStorage<Self>;
-}
-
-struct CameraSystem;
 
 impl<'a> System<'a> for CameraSystem {
     type SystemData = (
         Write<'a, RenderSubmitter>,
         Read<'a, InputHandler>,
+        Read<'a, DeltaTime>,
         WriteStorage<'a, Camera>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
-        let (mut submitter, input, mut cameras) = data;
+        let (mut submitter, input, delta_time, mut cameras) = data;
+
+        let delta_time = delta_time.0;
+        const BASE_CAMERA_SPEED: f32 = 5.0;
 
         for camera in (&mut cameras).join() {
-            if input.is_button_pressed(&MouseButton::Right, &KeyboardModifiers::NONE) {
-                let mouse_delta = Vec2::from(input.mouse_delta()) * 0.01f32;
+            let mut should_submit = false;
 
-                camera.yaw -= mouse_delta.x;
-                let half_pi = std::f32::consts::PI * 0.5 - 0.01;
-                camera.pitch -= mouse_delta.y;
-                camera.pitch = camera.pitch.clamp(-half_pi, half_pi);
+            if let Some(aspect) = self.updated_aspect_ratio {
+                camera.update_aspect_ratio(aspect);
+                should_submit = true;
+            }
+
+            if input.is_button_pressed(&MouseButton::Right, &KeyboardModifiers::NONE) {
+                let mouse_delta = -Vec2::from(input.mouse_delta()) * 0.01f32;
+                let mouse_delta = vec2(mouse_delta.y, mouse_delta.x);
+
+                camera.rotate_euler(&mouse_delta);
+                let pitch_bound = std::f32::consts::FRAC_PI_2 - 0.001;
+                camera.pitch = camera.pitch.clamp(-pitch_bound, pitch_bound);
+
+                should_submit = true;
+            }
+
+            if input.is_button_pressed(&MouseButton::Right, &KeyboardModifiers::L_SHIFT) {
+                let mut mouse_delta = Vec2::from(input.mouse_delta()) * 0.01;
+                mouse_delta.x *= -1.0;
+                let position_delta = camera.right() * mouse_delta.x + camera.up() * mouse_delta.y;
+                camera.target += position_delta;
+
+                should_submit = true;
+            }
+
+            let mut move_direction = Vec3::zeros();
+
+            if input.is_key_pressed(&KeyboardKey::W, &KeyboardModifiers::NONE) {
+                move_direction += camera.forward();
+            }
+            if input.is_key_pressed(&KeyboardKey::S, &KeyboardModifiers::NONE) {
+                move_direction -= camera.forward();
+            }
+            if input.is_key_pressed(&KeyboardKey::A, &KeyboardModifiers::NONE) {
+                move_direction -= camera.right();
+            }
+            if input.is_key_pressed(&KeyboardKey::D, &KeyboardModifiers::NONE) {
+                move_direction += camera.right();
+            }
+
+            if move_direction != Vec3::zeros() {
+                let distance_fraction = camera.distance / 5.0;
+                let speed_factor = (distance_fraction * distance_fraction).clamp(0.01, 20.0);
+                move_direction = move_direction.normalize();
+                move_direction *= BASE_CAMERA_SPEED * speed_factor * delta_time;
+                camera.target += move_direction;
+                should_submit = true;
             }
 
             let scroll_delta = input.scroll_delta();
@@ -64,16 +88,25 @@ impl<'a> System<'a> for CameraSystem {
                 let zoom_speed = (distance_fraction * distance_fraction).clamp(0.01, 20.0);
                 camera.distance -= scroll_delta[1] * zoom_speed;
                 camera.distance = camera.distance.max(0.1);
+                should_submit = true;
             }
 
-            let position: Vec3 = vec3(0.0, 0.0, camera.distance);
-            let rotation: Quat = quat_angle_axis(camera.yaw, &vec3(0.0, 1.0, 0.0))
-                * quat_angle_axis(camera.pitch, &vec3(1.0, 0.0, 0.0));
-
-            let position = quat_rotate_vec3(&rotation, &position);
-
-            submitter.submit_camera_position(position);
+            if should_submit {
+                submitter.update_view_projection(camera.get_view_projection_mat());
+            }
         }
+    }
+}
+
+#[derive(Default)]
+pub struct CameraLayer {
+    updated_aspect_ratio: Option<f32>,
+}
+
+impl CameraLayer {
+    fn handle_resize(&mut self, event: &WindowResized) {
+        let aspect_ratio = event.width / event.height;
+        self.updated_aspect_ratio = Some(aspect_ratio);
     }
 }
 
@@ -85,7 +118,17 @@ impl Layer for CameraLayer {
     ) -> anyhow::Result<()> {
         world.register::<Camera>();
 
-        world.create_entity().with(Camera::default()).build();
+        world
+            .create_entity()
+            .with(Camera::with_projection(CameraProjection::Perspective {
+                fovy: 90.0f32.to_radians(),
+                aspect: 1.0,
+                near: 0.1,
+                far: 250.0,
+            }))
+            .build();
+
+        event_bus.add_system(self);
 
         Ok(())
     }
@@ -95,9 +138,21 @@ impl Layer for CameraLayer {
         event_bus: &bizarre_events::observer::EventBus,
         world: &mut specs::World,
     ) -> anyhow::Result<()> {
-        let mut camera_sys = CameraSystem;
+        let mut camera_sys = CameraSystem {
+            updated_aspect_ratio: self.updated_aspect_ratio,
+        };
         camera_sys.run_now(world);
         world.maintain();
+        self.updated_aspect_ratio = None;
         Ok(())
+    }
+}
+
+impl Observer for CameraLayer {
+    fn initialize(
+        event_bus: &bizarre_events::observer::EventBus,
+        system: bizarre_events::observer::SyncObserver<Self>,
+    ) {
+        event_bus.subscribe(system, Self::handle_resize);
     }
 }

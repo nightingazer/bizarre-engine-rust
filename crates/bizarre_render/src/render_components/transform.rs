@@ -49,8 +49,8 @@ impl Transform {
     }
 }
 
-impl From<Transform> for Mat4 {
-    fn from(transform: Transform) -> Self {
+impl From<&Transform> for Mat4 {
+    fn from(transform: &Transform) -> Self {
         let mut mat = Mat4::identity();
         mat = mat.append_nonuniform_scaling(&transform.scale);
 
@@ -71,7 +71,7 @@ impl Default for Transform {
     fn default() -> Self {
         Self {
             position: Default::default(),
-            rotation: Default::default(),
+            rotation: Quat::identity(),
             scale: vec3(1.0, 1.0, 1.0),
         }
     }

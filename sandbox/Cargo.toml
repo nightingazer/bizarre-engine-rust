@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 bizarre_engine = { path = "../" }
 anyhow = { workspace = true }
+nalgebra-glm = { workspace = true }

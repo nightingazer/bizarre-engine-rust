@@ -1,4 +1,4 @@
-use nalgebra_glm::Vec3;
+use nalgebra_glm::{Mat4, Vec3};
 
 use crate::{
     render_components::Mesh,
@@ -11,9 +11,9 @@ pub struct RenderSubmitter {
     vertex_buffer: Vec<VertexData>,
     index_buffer: Vec<u32>,
     clear_color: [f32; 4],
-    ambient_light: AmbientLight,
+    ambient_light: Option<AmbientLight>,
     directional_lights: Vec<DirectionalLight>,
-    camera_position: Vec3,
+    view_projection: Option<Mat4>,
 }
 
 impl Default for RenderSubmitter {
@@ -28,9 +28,9 @@ impl RenderSubmitter {
             vertex_buffer: Vec::new(),
             index_buffer: Vec::new(),
             clear_color: [0.0, 0.0, 0.0, 1.0],
-            ambient_light: AmbientLight::default(),
             directional_lights: Vec::new(),
-            camera_position: Vec3::from([0., -2.5, 5.0]),
+            ambient_light: None,
+            view_projection: None,
         }
     }
 
@@ -51,16 +51,16 @@ impl RenderSubmitter {
         self.clear_color = clear_color;
     }
 
-    pub fn set_ambient_light(&mut self, ambient_light: AmbientLight) {
-        self.ambient_light = ambient_light;
+    pub fn submit_ambient_light(&mut self, ambient_light: AmbientLight) {
+        self.ambient_light = Some(ambient_light);
     }
 
     pub fn submit_directional_light(&mut self, directional_light: DirectionalLight) {
         self.directional_lights.push(directional_light);
     }
 
-    pub fn submit_camera_position(&mut self, position: Vec3) {
-        self.camera_position = position;
+    pub fn update_view_projection(&mut self, view_projection: Mat4) {
+        self.view_projection = Some(view_projection);
     }
 
     pub fn finalize_submission(&mut self) -> RenderPackage {
@@ -70,12 +70,14 @@ impl RenderSubmitter {
             ambient_light: self.ambient_light.clone(),
             directional_lights: self.directional_lights.clone(),
             clear_color: self.clear_color,
-            camera_position: self.camera_position,
+            view_projection: self.view_projection,
         };
 
         self.vertex_buffer.clear();
         self.index_buffer.clear();
         self.directional_lights.clear();
+        self.view_projection = None;
+        self.ambient_light = None;
 
         package
     }
