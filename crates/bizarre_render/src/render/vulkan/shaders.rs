@@ -51,3 +51,21 @@ pub mod directional_frag {
         path: "assets/shaders/directional.frag",
     }
 }
+
+pub mod floor_vert {
+    use vulkano_shaders::shader;
+
+    shader! {
+        ty: "vertex",
+        path: "assets/shaders/floor.vert"
+    }
+}
+
+pub mod floor_frag {
+    use vulkano_shaders::shader;
+
+    shader! {
+        ty: "fragment",
+        path: "assets/shaders/floor.frag"
+    }
+}

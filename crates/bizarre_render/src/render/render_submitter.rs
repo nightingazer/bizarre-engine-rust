@@ -13,7 +13,9 @@ pub struct RenderSubmitter {
     clear_color: [f32; 4],
     ambient_light: Option<AmbientLight>,
     directional_lights: Vec<DirectionalLight>,
-    view_projection: Option<Mat4>,
+    view: Mat4,
+    projection: Mat4,
+    view_projection_was_updated: bool,
 }
 
 impl Default for RenderSubmitter {
@@ -30,7 +32,9 @@ impl RenderSubmitter {
             clear_color: [0.0, 0.0, 0.0, 1.0],
             directional_lights: Vec::new(),
             ambient_light: None,
-            view_projection: None,
+            view: Mat4::identity(),
+            projection: Mat4::identity(),
+            view_projection_was_updated: false,
         }
     }
 
@@ -59,8 +63,14 @@ impl RenderSubmitter {
         self.directional_lights.push(directional_light);
     }
 
-    pub fn update_view_projection(&mut self, view_projection: Mat4) {
-        self.view_projection = Some(view_projection);
+    pub fn update_view(&mut self, view: Mat4) {
+        self.view = view;
+        self.view_projection_was_updated = true;
+    }
+
+    pub fn update_projection(&mut self, projection: Mat4) {
+        self.projection = projection;
+        self.view_projection_was_updated = true;
     }
 
     pub fn finalize_submission(&mut self) -> RenderPackage {
@@ -70,13 +80,14 @@ impl RenderSubmitter {
             ambient_light: self.ambient_light.clone(),
             directional_lights: self.directional_lights.clone(),
             clear_color: self.clear_color,
-            view_projection: self.view_projection,
+            view: self.view,
+            projection: self.projection,
+            view_projection_was_updated: self.view_projection_was_updated,
         };
 
         self.vertex_buffer.clear();
         self.index_buffer.clear();
         self.directional_lights.clear();
-        self.view_projection = None;
         self.ambient_light = None;
 
         package

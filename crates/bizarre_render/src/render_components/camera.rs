@@ -101,8 +101,8 @@ impl Camera {
     }
 
     pub fn rotate_euler(&mut self, angles: &Vec2) {
-        self.pitch += angles.x;
-        self.yaw += angles.y;
+        self.pitch -= angles.x;
+        self.yaw -= angles.y;
     }
 
     pub fn right(&self) -> Vec3 {

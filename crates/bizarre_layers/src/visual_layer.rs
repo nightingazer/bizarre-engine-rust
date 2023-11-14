@@ -143,14 +143,6 @@ impl Layer for VisualLayer {
         world.register::<Transform>();
         world.register::<DirectionalLight>();
 
-        world
-            .create_entity()
-            .with(DirectionalLight {
-                color: [1.0, 0.8, 0.6],
-                position: [7.5, 10.0, 10.0],
-            })
-            .build();
-
         event_bus.push_event(WindowResized {
             width: self._window.inner_size().width as f32,
             height: self._window.inner_size().height as f32,

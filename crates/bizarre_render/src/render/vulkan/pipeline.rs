@@ -20,6 +20,27 @@ use vulkano::{
 
 use super::vertex::VulkanVertexData;
 
+pub fn create_graphics_pipeline_without_vertex_input(
+    vertex_shader: Arc<ShaderModule>,
+    fragment_shader: Arc<ShaderModule>,
+    render_pass: impl Into<PipelineRenderPassType>,
+    device: Arc<Device>,
+    num_attachments: u32,
+) -> Result<Arc<GraphicsPipeline>> {
+    let pipeline = GraphicsPipeline::start()
+        .vertex_shader(vertex_shader.entry_point("main").unwrap(), ())
+        .input_assembly_state(InputAssemblyState::new())
+        .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+        .fragment_shader(fragment_shader.entry_point("main").unwrap(), ())
+        .depth_stencil_state(DepthStencilState::simple_depth_test())
+        .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
+        .color_blend_state(ColorBlendState::new(num_attachments).blend_alpha())
+        .render_pass(render_pass)
+        .build(device.clone())?;
+
+    Ok(pipeline)
+}
+
 pub fn create_graphics_pipeline<V: Vertex>(
     vertex_shader: Arc<ShaderModule>,
     fragment_shader: Arc<ShaderModule>,
@@ -35,7 +56,7 @@ pub fn create_graphics_pipeline<V: Vertex>(
         .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
         .fragment_shader(fragment_shader.entry_point("main").unwrap(), ())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
+        .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
         .render_pass(render_pass);
 
     match color_op {

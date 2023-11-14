@@ -39,7 +39,7 @@ impl<'a> System<'a> for CameraSystem {
             }
 
             if input.is_button_pressed(&MouseButton::Right, &KeyboardModifiers::NONE) {
-                let mouse_delta = -Vec2::from(input.mouse_delta()) * 0.01f32;
+                let mouse_delta = Vec2::from(input.mouse_delta()) * 0.01f32;
                 let mouse_delta = vec2(mouse_delta.y, mouse_delta.x);
 
                 camera.rotate_euler(&mouse_delta);
@@ -92,7 +92,8 @@ impl<'a> System<'a> for CameraSystem {
             }
 
             if should_submit {
-                submitter.update_view_projection(camera.get_view_projection_mat());
+                submitter.update_view(camera.get_view_mat());
+                submitter.update_projection(camera.get_projection_mat());
             }
         }
     }
@@ -117,16 +118,17 @@ impl Layer for CameraLayer {
         world: &mut specs::World,
     ) -> anyhow::Result<()> {
         world.register::<Camera>();
+        let mut camera = Camera::with_projection(CameraProjection::Perspective {
+            fovy: 60.0f32.to_radians(),
+            aspect: 1.0,
+            near: 0.1,
+            far: 250.0,
+        });
 
-        world
-            .create_entity()
-            .with(Camera::with_projection(CameraProjection::Perspective {
-                fovy: 90.0f32.to_radians(),
-                aspect: 1.0,
-                near: 0.1,
-                far: 250.0,
-            }))
-            .build();
+        camera.rotate_euler(&vec2(33.0f32.to_radians(), -45.0f32.to_radians()));
+        camera.distance = 7.5;
+
+        world.create_entity().with(camera).build();
 
         event_bus.add_system(self);
 

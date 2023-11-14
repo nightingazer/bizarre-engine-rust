@@ -34,11 +34,11 @@ use crate::{render_math::AmbientLight, render_package::RenderPackage, renderer::
 
 use super::{
     framebuffer::window_size_dependent_setup,
-    pipeline::create_graphics_pipeline,
+    pipeline::{create_graphics_pipeline, create_graphics_pipeline_without_vertex_input},
     render_pass::create_render_pass,
     shaders::{
         ambient_frag, ambient_vert, deferred_frag, deferred_vert, directional_frag,
-        directional_vert,
+        directional_vert, floor_frag, floor_vert,
     },
     vertex::{DummyVertexData, VulkanVertexData},
 };
@@ -58,6 +58,7 @@ pub struct VulkanRenderer {
     deferred_pipeline: Arc<GraphicsPipeline>,
     ambient_pipeline: Arc<GraphicsPipeline>,
     directional_pipeline: Arc<GraphicsPipeline>,
+    floor_pipeline: Arc<GraphicsPipeline>,
 
     framebuffers: Vec<Arc<Framebuffer>>,
     color_buffer: Arc<ImageView<AttachmentImage>>,
@@ -69,9 +70,11 @@ pub struct VulkanRenderer {
     acquire_future: Option<SwapchainAcquireFuture>,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
 
-    view_projection: Subbuffer<deferred_vert::DeferredVertUniforms>,
     ambient_light: Subbuffer<AmbientLight>,
     fullscreen_quad: Subbuffer<[DummyVertexData]>,
+    view: Mat4,
+    projection: Mat4,
+    view_projection: Mat4,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -204,24 +207,7 @@ impl Renderer for VulkanRenderer {
             &vec3(0.0, 1.0, 0.0),
         );
 
-        let vp = projection * view;
-
-        let vp = deferred_vert::DeferredVertUniforms {
-            view_projection: vp.into(),
-        };
-
-        let view_projection = Buffer::from_data(
-            &memory_allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::UNIFORM_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
-                ..Default::default()
-            },
-            vp,
-        )?;
+        let view_projection = projection * view;
 
         let render_pass = create_render_pass(swapchain.clone(), device.clone())?;
 
@@ -272,6 +258,22 @@ impl Renderer for VulkanRenderer {
             )?
         };
 
+        let floor_pipeline = {
+            let floor_vert = floor_vert::load(device.clone())?;
+            let floor_frag = floor_frag::load(device.clone())?;
+
+            let floor_pass = Subpass::from(render_pass.clone(), 2)
+                .ok_or(anyhow!("Failed to create floor pass from render pass"))?;
+
+            create_graphics_pipeline_without_vertex_input(
+                floor_vert,
+                floor_frag,
+                floor_pass.clone(),
+                device.clone(),
+                floor_pass.num_color_attachments(),
+            )?
+        };
+
         let mut viewport = Viewport {
             origin: [0.0, 0.0],
             dimensions: [0.0, 0.0],
@@ -317,6 +319,7 @@ impl Renderer for VulkanRenderer {
             deferred_pipeline,
             ambient_pipeline,
             directional_pipeline,
+            floor_pipeline,
 
             framebuffers,
             color_buffer,
@@ -329,6 +332,8 @@ impl Renderer for VulkanRenderer {
 
             ambient_light,
             view_projection,
+            view,
+            projection,
             fullscreen_quad,
 
             previous_frame_end,
@@ -353,24 +358,26 @@ impl Renderer for VulkanRenderer {
             _ => (),
         };
 
-        if skip_render {
-            self.commands
-                .as_mut()
-                .unwrap()
-                .next_subpass(SubpassContents::Inline)?;
-            self.finish_render()?;
-            return Ok(());
+        if !skip_render {
+            self.deferred_render(&render_package)?;
         }
-
-        self.deferred_render(&render_package)?;
 
         self.commands
             .as_mut()
             .unwrap()
             .next_subpass(SubpassContents::Inline)?;
 
-        self.ambient_render(&render_package)?;
-        self.directional_render(&render_package)?;
+        if !skip_render {
+            self.ambient_render(&render_package)?;
+            self.directional_render(&render_package)?;
+        }
+
+        self.commands
+            .as_mut()
+            .unwrap()
+            .next_subpass(SubpassContents::Inline)?;
+
+        self.floor_render()?;
 
         self.finish_render()?;
 
@@ -384,9 +391,8 @@ impl Renderer for VulkanRenderer {
 }
 
 impl VulkanRenderer {
-    fn update_view_projection(&mut self, view_projection: Mat4) -> Result<()> {
-        let mut write_guard = self.view_projection.write()?;
-        write_guard.view_projection = view_projection.into();
+    fn recalculate_view_projection(&mut self) -> Result<()> {
+        self.view_projection = self.projection * self.view;
         Ok(())
     }
 
@@ -424,8 +430,10 @@ impl VulkanRenderer {
             Some(1.0.into()),
         ];
 
-        if let Some(view_projection) = render_package.view_projection {
-            self.update_view_projection(view_projection)?;
+        if render_package.view_projection_was_updated {
+            self.view = render_package.view.clone();
+            self.projection = render_package.projection.clone();
+            self.recalculate_view_projection();
         }
 
         if let Some(light) = &render_package.ambient_light {
@@ -493,12 +501,30 @@ impl VulkanRenderer {
             render_package.indices.clone(),
         )?;
 
+        let view_projection = {
+            let vp = deferred_vert::DeferredVertUniforms {
+                view_projection: self.view_projection.into(),
+            };
+            Buffer::from_data(
+                &self.memory_allocator,
+                BufferCreateInfo {
+                    usage: BufferUsage::UNIFORM_BUFFER,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    usage: MemoryUsage::Upload,
+                    ..Default::default()
+                },
+                vp,
+            )?
+        };
+
         let deferred_layout = self.deferred_pipeline.layout();
         let set_layout = deferred_layout.set_layouts().get(0).unwrap();
         let set = PersistentDescriptorSet::new(
             &self.descriptor_set_allocator,
             set_layout.clone(),
-            [WriteDescriptorSet::buffer(0, self.view_projection.clone())],
+            [WriteDescriptorSet::buffer(0, view_projection.clone())],
         )?;
 
         commands
@@ -585,6 +611,47 @@ impl VulkanRenderer {
                 .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)
                 .draw(self.fullscreen_quad.len() as u32, 1, 0, 0)?;
         }
+
+        Ok(())
+    }
+
+    fn floor_render(&mut self) -> Result<()> {
+        let mut commands = self.commands.as_mut().unwrap();
+
+        let vp = {
+            let vp = floor_vert::ViewProjectionUniforms {
+                view: self.view.into(),
+                projection: self.projection.into(),
+            };
+
+            Buffer::from_data(
+                &self.memory_allocator,
+                BufferCreateInfo {
+                    usage: BufferUsage::UNIFORM_BUFFER,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    usage: MemoryUsage::Upload,
+                    ..Default::default()
+                },
+                vp,
+            )?
+        };
+
+        let layout = self.floor_pipeline.layout();
+        let set_layout = layout.set_layouts().first().unwrap();
+
+        let set = PersistentDescriptorSet::new(
+            &self.descriptor_set_allocator,
+            set_layout.clone(),
+            [WriteDescriptorSet::buffer(0, vp)],
+        )?;
+
+        commands
+            .bind_pipeline_graphics(self.floor_pipeline.clone())
+            .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)
+            .draw(6, 1, 0, 0)
+            .map_err(|e| anyhow!("Failed to draw floor: {e}"))?;
 
         Ok(())
     }

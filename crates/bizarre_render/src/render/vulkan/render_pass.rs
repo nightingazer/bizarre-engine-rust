@@ -45,6 +45,11 @@ pub fn create_render_pass(
                 color: [final_color],
                 depth_stencil: {},
                 input: [color, normals],
+            },
+            {
+                color: [final_color],
+                depth_stencil: {depth},
+                input: []
             }
         ]
     )?;
