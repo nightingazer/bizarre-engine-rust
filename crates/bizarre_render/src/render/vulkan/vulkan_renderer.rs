@@ -34,7 +34,7 @@ use crate::{render_math::AmbientLight, render_package::RenderPackage, renderer::
 
 use super::{
     framebuffer::window_size_dependent_setup,
-    pipeline::{create_graphics_pipeline, create_graphics_pipeline_without_vertex_input},
+    pipeline::{create_editor_grid_graphics_pipeline, create_graphics_pipeline},
     render_pass::create_render_pass,
     shaders::{
         ambient_frag, ambient_vert, deferred_frag, deferred_vert, directional_frag,
@@ -265,7 +265,7 @@ impl Renderer for VulkanRenderer {
             let floor_pass = Subpass::from(render_pass.clone(), 2)
                 .ok_or(anyhow!("Failed to create floor pass from render pass"))?;
 
-            create_graphics_pipeline_without_vertex_input(
+            create_editor_grid_graphics_pipeline(
                 floor_vert,
                 floor_frag,
                 floor_pass.clone(),

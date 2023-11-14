@@ -20,7 +20,7 @@ use vulkano::{
 
 use super::vertex::VulkanVertexData;
 
-pub fn create_graphics_pipeline_without_vertex_input(
+pub fn create_editor_grid_graphics_pipeline(
     vertex_shader: Arc<ShaderModule>,
     fragment_shader: Arc<ShaderModule>,
     render_pass: impl Into<PipelineRenderPassType>,
@@ -33,7 +33,7 @@ pub fn create_graphics_pipeline_without_vertex_input(
         .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
         .fragment_shader(fragment_shader.entry_point("main").unwrap(), ())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
+        .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
         .color_blend_state(ColorBlendState::new(num_attachments).blend_alpha())
         .render_pass(render_pass)
         .build(device.clone())?;
