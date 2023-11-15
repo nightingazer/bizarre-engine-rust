@@ -1,9 +1,9 @@
-use vulkano::{buffer::BufferContents, pipeline::graphics::vertex_input::Vertex};
+use vulkano::buffer::BufferContents;
 
-use crate::vertex::{ColorNormalVertex, PositionVertex};
+use crate::vertex::{ColorNormalVertex, PositionVertex, Vertex};
 
 #[repr(C)]
-#[derive(BufferContents, Vertex)]
+#[derive(BufferContents, vulkano::pipeline::graphics::vertex_input::Vertex)]
 pub struct VulkanVertex {
     #[format(R32G32B32_SFLOAT)]
     pub position: [f32; 3],
@@ -13,8 +13,18 @@ pub struct VulkanVertex {
     pub uv: [f32; 2],
 }
 
+impl From<Vertex> for VulkanVertex {
+    fn from(value: Vertex) -> Self {
+        Self {
+            position: value.position.into(),
+            normal: value.normal.into(),
+            uv: value.uv.into(),
+        }
+    }
+}
+
 #[repr(C)]
-#[derive(BufferContents, Vertex)]
+#[derive(BufferContents, vulkano::pipeline::graphics::vertex_input::Vertex)]
 pub struct VulkanColorNormalVertex {
     #[format(R32G32B32_SFLOAT)]
     pub position: [f32; 3],
@@ -35,7 +45,7 @@ impl From<ColorNormalVertex> for VulkanColorNormalVertex {
 }
 
 #[repr(C)]
-#[derive(BufferContents, Vertex, Clone)]
+#[derive(BufferContents, vulkano::pipeline::graphics::vertex_input::Vertex, Clone)]
 pub struct VulkanPosition2DVertex {
     #[format(R32G32_SFLOAT)]
     pub position: [f32; 2],
@@ -67,7 +77,7 @@ impl VulkanPosition2DVertex {
 }
 
 #[repr(C)]
-#[derive(BufferContents, Vertex, Clone)]
+#[derive(BufferContents, vulkano::pipeline::graphics::vertex_input::Vertex, Clone)]
 pub struct VulkanPositionVertex {
     #[format(R32G32B32_SFLOAT)]
     pub position: [f32; 3],
