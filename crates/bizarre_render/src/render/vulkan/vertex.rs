@@ -1,6 +1,6 @@
 use vulkano::{buffer::BufferContents, pipeline::graphics::vertex_input::Vertex};
 
-use crate::vertex::VertexData;
+use crate::vertex::{PositionVertexData, VertexData};
 
 #[repr(C)]
 #[derive(BufferContents, Vertex)]
@@ -52,5 +52,20 @@ impl DummyVertexData {
                 position: [-1.0, 1.0],
             },
         ]
+    }
+}
+
+#[repr(C)]
+#[derive(BufferContents, Vertex, Clone)]
+pub struct VulkanPositionVertexData {
+    #[format(R32G32B32_SFLOAT)]
+    pub position: [f32; 3],
+}
+
+impl From<PositionVertexData> for VulkanPositionVertexData {
+    fn from(value: PositionVertexData) -> Self {
+        Self {
+            position: value.position.into(),
+        }
     }
 }

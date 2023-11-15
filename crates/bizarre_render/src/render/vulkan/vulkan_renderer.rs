@@ -30,17 +30,22 @@ use vulkano::{
 };
 use vulkano_win::create_surface_from_winit;
 
-use crate::{render_math::AmbientLight, render_package::RenderPackage, renderer::Renderer};
+use crate::{
+    render_math::AmbientLight, render_package::RenderPackage, renderer::Renderer,
+    vertex::CUBE_MAP_VERTICES,
+};
 
 use super::{
     framebuffer::window_size_dependent_setup,
-    pipeline::{create_editor_grid_graphics_pipeline, create_graphics_pipeline},
+    pipeline::{
+        create_editor_grid_graphics_pipeline, create_graphics_pipeline, create_skybox_pipeline,
+    },
     render_pass::create_render_pass,
     shaders::{
         ambient_frag, ambient_vert, deferred_frag, deferred_vert, directional_frag,
-        directional_vert, floor_frag, floor_vert,
+        directional_vert, editor_bg_frag, editor_bg_vert, floor_frag, floor_vert,
     },
-    vertex::{DummyVertexData, VulkanVertexData},
+    vertex::{DummyVertexData, VulkanPositionVertexData, VulkanVertexData},
 };
 
 pub struct VulkanRenderer {
@@ -58,6 +63,7 @@ pub struct VulkanRenderer {
     deferred_pipeline: Arc<GraphicsPipeline>,
     ambient_pipeline: Arc<GraphicsPipeline>,
     directional_pipeline: Arc<GraphicsPipeline>,
+    editor_background_pipeline: Arc<GraphicsPipeline>,
     floor_pipeline: Arc<GraphicsPipeline>,
 
     framebuffers: Vec<Arc<Framebuffer>>,
@@ -258,6 +264,17 @@ impl Renderer for VulkanRenderer {
             )?
         };
 
+        let editor_background_pipeline = {
+            let vert = editor_bg_vert::load(device.clone())?;
+            let frag = editor_bg_frag::load(device.clone())?;
+
+            let pass = Subpass::from(render_pass.clone(), 0).ok_or(anyhow!(
+                "Failed to create editor background pass from render pass"
+            ))?;
+
+            create_skybox_pipeline(vert, frag, pass.clone(), device.clone())?
+        };
+
         let floor_pipeline = {
             let floor_vert = floor_vert::load(device.clone())?;
             let floor_frag = floor_frag::load(device.clone())?;
@@ -319,6 +336,7 @@ impl Renderer for VulkanRenderer {
             deferred_pipeline,
             ambient_pipeline,
             directional_pipeline,
+            editor_background_pipeline,
             floor_pipeline,
 
             framebuffers,
@@ -361,6 +379,8 @@ impl Renderer for VulkanRenderer {
         if !skip_render {
             self.deferred_render(&render_package)?;
         }
+
+        self.render_editor_bg()?;
 
         self.commands
             .as_mut()
@@ -425,8 +445,8 @@ impl VulkanRenderer {
 
         let clear_values = vec![
             Some(render_package.clear_color.into()),
-            Some([0.0, 0.0, 0.0, 1.0].into()),
-            Some([0.0, 0.0, 0.0, 1.0].into()),
+            Some([0.0, 0.0, 0.0, 0.0].into()),
+            Some([0.0, 0.0, 0.0, 0.0].into()),
             Some(1.0.into()),
         ];
 
@@ -611,6 +631,48 @@ impl VulkanRenderer {
                 .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)
                 .draw(self.fullscreen_quad.len() as u32, 1, 0, 0)?;
         }
+
+        Ok(())
+    }
+
+    fn render_editor_bg(&mut self) -> Result<()> {
+        let mut commands = self.commands.as_mut().unwrap();
+
+        let vp = {
+            let vp = editor_bg_vert::Uniforms {
+                view: self.view.into(),
+                projection: self.projection.into(),
+            };
+
+            Buffer::from_data(
+                &self.memory_allocator,
+                BufferCreateInfo {
+                    usage: BufferUsage::UNIFORM_BUFFER,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    usage: MemoryUsage::Upload,
+                    ..Default::default()
+                },
+                vp,
+            )?
+        };
+
+        let layout = self.editor_background_pipeline.layout();
+        let set_layout = layout.set_layouts().first().unwrap();
+
+        let set = PersistentDescriptorSet::new(
+            &self.descriptor_set_allocator,
+            set_layout.clone(),
+            [WriteDescriptorSet::buffer(0, vp)],
+        )?;
+
+        commands
+            .bind_pipeline_graphics(self.editor_background_pipeline.clone())
+            .bind_vertex_buffers(0, self.fullscreen_quad.clone())
+            .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)
+            .draw(self.fullscreen_quad.len() as u32, 1, 0, 0)
+            .map_err(|e| anyhow!("Failed to draw editor background: {e}"))?;
 
         Ok(())
     }

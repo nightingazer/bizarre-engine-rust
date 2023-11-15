@@ -33,13 +33,13 @@ impl Layer for SandboxLayer {
             .with(Mesh::from_obj("assets/models/cube.obj".to_string())?)
             .build();
 
-        world
-            .create_entity()
-            .with(Transform {
-                ..Default::default()
-            })
-            .with(Mesh::from_obj("assets/models/cube.obj".to_string())?)
-            .build();
+        // world
+        //     .create_entity()
+        //     .with(Transform {
+        //         ..Default::default()
+        //     })
+        //     .with(Mesh::from_obj("assets/models/cube.obj".to_string())?)
+        //     .build();
 
         world
             .create_entity()

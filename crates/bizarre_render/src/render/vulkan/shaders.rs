@@ -52,6 +52,24 @@ pub mod directional_frag {
     }
 }
 
+pub mod editor_bg_vert {
+    use vulkano_shaders::shader;
+
+    shader! {
+        ty: "vertex",
+        path: "assets/shaders/editor_background.vert"
+    }
+}
+
+pub mod editor_bg_frag {
+    use vulkano_shaders::shader;
+
+    shader! {
+        ty: "fragment",
+        path: "assets/shaders/editor_background.frag"
+    }
+}
+
 pub mod floor_vert {
     use vulkano_shaders::shader;
 

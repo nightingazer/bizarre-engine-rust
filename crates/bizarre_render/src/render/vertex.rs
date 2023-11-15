@@ -7,191 +7,124 @@ pub struct VertexData {
     pub color: Vec3,
 }
 
-// pub const CUBE_VERTICES: [VertexData; 36] = [
-//     // front face
-//     VertexData {
-//         position: [-1.000000, -1.000000, 1.000000],
-//         normal: [0.0000, 0.0000, 1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, 1.000000, 1.000000],
-//         normal: [0.0000, 0.0000, 1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, 1.000000, 1.000000],
-//         normal: [0.0000, 0.0000, 1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, -1.000000, 1.000000],
-//         normal: [0.0000, 0.0000, 1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, 1.000000, 1.000000],
-//         normal: [0.0000, 0.0000, 1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, -1.000000, 1.000000],
-//         normal: [0.0000, 0.0000, 1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     // back face
-//     VertexData {
-//         position: [1.000000, -1.000000, -1.000000],
-//         normal: [0.0000, 0.0000, -1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, 1.000000, -1.000000],
-//         normal: [0.0000, 0.0000, -1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, 1.000000, -1.000000],
-//         normal: [0.0000, 0.0000, -1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, -1.000000, -1.000000],
-//         normal: [0.0000, 0.0000, -1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, 1.000000, -1.000000],
-//         normal: [0.0000, 0.0000, -1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, -1.000000, -1.000000],
-//         normal: [0.0000, 0.0000, -1.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     // top face
-//     VertexData {
-//         position: [-1.000000, -1.000000, 1.000000],
-//         normal: [0.0000, -1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, -1.000000, 1.000000],
-//         normal: [0.0000, -1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, -1.000000, -1.000000],
-//         normal: [0.0000, -1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, -1.000000, 1.000000],
-//         normal: [0.0000, -1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, -1.000000, -1.000000],
-//         normal: [0.0000, -1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, -1.000000, -1.000000],
-//         normal: [0.0000, -1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     // bottom face
-//     VertexData {
-//         position: [1.000000, 1.000000, 1.000000],
-//         normal: [0.0000, 1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, 1.000000, 1.000000],
-//         normal: [0.0000, 1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, 1.000000, -1.000000],
-//         normal: [0.0000, 1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, 1.000000, 1.000000],
-//         normal: [0.0000, 1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, 1.000000, -1.000000],
-//         normal: [0.0000, 1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, 1.000000, -1.000000],
-//         normal: [0.0000, 1.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     // left face
-//     VertexData {
-//         position: [-1.000000, -1.000000, -1.000000],
-//         normal: [-1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, 1.000000, -1.000000],
-//         normal: [-1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, 1.000000, 1.000000],
-//         normal: [-1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, -1.000000, -1.000000],
-//         normal: [-1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, 1.000000, 1.000000],
-//         normal: [-1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [-1.000000, -1.000000, 1.000000],
-//         normal: [-1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     // right face
-//     VertexData {
-//         position: [1.000000, -1.000000, 1.000000],
-//         normal: [1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, 1.000000, 1.000000],
-//         normal: [1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, 1.000000, -1.000000],
-//         normal: [1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, -1.000000, 1.000000],
-//         normal: [1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, 1.000000, -1.000000],
-//         normal: [1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-//     VertexData {
-//         position: [1.000000, -1.000000, -1.000000],
-//         normal: [1.0000, 0.0000, 0.0000],
-//         color: [1.0, 0.35, 0.137],
-//     },
-// ];
+#[derive(Clone)]
+pub struct PositionVertexData {
+    pub position: [f32; 3],
+}
+
+pub const CUBE_MAP_VERTICES: [PositionVertexData; 36] = [
+    // front face
+    PositionVertexData {
+        position: [-1.000000, -1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, 1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, 1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, -1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, 1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, -1.000000, 1.000000],
+    },
+    // back face
+    PositionVertexData {
+        position: [1.000000, -1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, 1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, 1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, -1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, 1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, -1.000000, -1.000000],
+    },
+    // top face
+    PositionVertexData {
+        position: [-1.000000, -1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, -1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, -1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, -1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, -1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, -1.000000, -1.000000],
+    },
+    // bottom face
+    PositionVertexData {
+        position: [1.000000, 1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, 1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, 1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, 1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, 1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, 1.000000, -1.000000],
+    },
+    // left face
+    PositionVertexData {
+        position: [-1.000000, -1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, 1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, 1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, -1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, 1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [-1.000000, -1.000000, 1.000000],
+    },
+    // right face
+    PositionVertexData {
+        position: [1.000000, -1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, 1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, 1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, -1.000000, 1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, 1.000000, -1.000000],
+    },
+    PositionVertexData {
+        position: [1.000000, -1.000000, -1.000000],
+    },
+];

@@ -6,19 +6,19 @@ use vulkano::{
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, BlendOp, ColorBlendState},
-            depth_stencil::DepthStencilState,
+            depth_stencil::{CompareOp, DepthState, DepthStencilState},
             input_assembly::InputAssemblyState,
             rasterization::{CullMode, FrontFace, RasterizationState},
             render_pass::PipelineRenderPassType,
             vertex_input::Vertex,
             viewport::ViewportState,
         },
-        GraphicsPipeline,
+        GraphicsPipeline, StateMode,
     },
     shader::ShaderModule,
 };
 
-use super::vertex::VulkanVertexData;
+use super::vertex::{DummyVertexData, VulkanPositionVertexData, VulkanVertexData};
 
 pub fn create_editor_grid_graphics_pipeline(
     vertex_shader: Arc<ShaderModule>,
@@ -41,6 +41,33 @@ pub fn create_editor_grid_graphics_pipeline(
     Ok(pipeline)
 }
 
+pub fn create_skybox_pipeline(
+    vertex_shader: Arc<ShaderModule>,
+    fragment_shader: Arc<ShaderModule>,
+    render_pass: impl Into<PipelineRenderPassType>,
+    device: Arc<Device>,
+) -> Result<Arc<GraphicsPipeline>> {
+    let pipeline = GraphicsPipeline::start()
+        .vertex_input_state(DummyVertexData::per_vertex())
+        .vertex_shader(vertex_shader.entry_point("main").unwrap(), ())
+        .input_assembly_state(InputAssemblyState::new())
+        .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+        .fragment_shader(fragment_shader.entry_point("main").unwrap(), ())
+        .depth_stencil_state(DepthStencilState {
+            depth: Some(DepthState {
+                write_enable: StateMode::Fixed(true),
+                compare_op: StateMode::Fixed(CompareOp::LessOrEqual),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
+        .render_pass(render_pass)
+        .build(device.clone())?;
+
+    Ok(pipeline)
+}
+
 pub fn create_graphics_pipeline<V: Vertex>(
     vertex_shader: Arc<ShaderModule>,
     fragment_shader: Arc<ShaderModule>,
@@ -55,8 +82,8 @@ pub fn create_graphics_pipeline<V: Vertex>(
         .input_assembly_state(InputAssemblyState::new())
         .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
         .fragment_shader(fragment_shader.entry_point("main").unwrap(), ())
-        .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
+        .depth_stencil_state(DepthStencilState::simple_depth_test())
         .render_pass(render_pass);
 
     match color_op {
