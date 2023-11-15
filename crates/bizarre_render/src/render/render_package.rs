@@ -2,11 +2,11 @@ use nalgebra_glm::Mat4;
 
 use crate::{
     render_math::{AmbientLight, DirectionalLight},
-    vertex::VertexData,
+    vertex::ColorNormalVertex,
 };
 
 pub struct RenderPackage {
-    pub vertices: Vec<VertexData>,
+    pub vertices: Vec<ColorNormalVertex>,
     pub indices: Vec<u32>,
     pub ambient_light: Option<AmbientLight>,
     pub directional_lights: Vec<DirectionalLight>,

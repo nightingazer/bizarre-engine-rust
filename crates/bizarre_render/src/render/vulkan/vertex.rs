@@ -1,10 +1,21 @@
 use vulkano::{buffer::BufferContents, pipeline::graphics::vertex_input::Vertex};
 
-use crate::vertex::{PositionVertexData, VertexData};
+use crate::vertex::{ColorNormalVertex, PositionVertex};
 
 #[repr(C)]
 #[derive(BufferContents, Vertex)]
-pub struct VulkanVertexData {
+pub struct VulkanVertex {
+    #[format(R32G32B32_SFLOAT)]
+    pub position: [f32; 3],
+    #[format(R32G32B32_SFLOAT)]
+    pub normal: [f32; 3],
+    #[format(R32G32_SFLOAT)]
+    pub uv: [f32; 2],
+}
+
+#[repr(C)]
+#[derive(BufferContents, Vertex)]
+pub struct VulkanColorNormalVertex {
     #[format(R32G32B32_SFLOAT)]
     pub position: [f32; 3],
     #[format(R32G32B32_SFLOAT)]
@@ -13,8 +24,8 @@ pub struct VulkanVertexData {
     pub normal: [f32; 3],
 }
 
-impl From<VertexData> for VulkanVertexData {
-    fn from(value: VertexData) -> Self {
+impl From<ColorNormalVertex> for VulkanColorNormalVertex {
+    fn from(value: ColorNormalVertex) -> Self {
         Self {
             position: value.position.into(),
             color: value.color.into(),
@@ -25,30 +36,30 @@ impl From<VertexData> for VulkanVertexData {
 
 #[repr(C)]
 #[derive(BufferContents, Vertex, Clone)]
-pub struct DummyVertexData {
+pub struct VulkanPosition2DVertex {
     #[format(R32G32_SFLOAT)]
     pub position: [f32; 2],
 }
 
-impl DummyVertexData {
-    pub fn list() -> [DummyVertexData; 6] {
+impl VulkanPosition2DVertex {
+    pub fn list() -> [VulkanPosition2DVertex; 6] {
         [
-            DummyVertexData {
+            VulkanPosition2DVertex {
                 position: [-1.0, -1.0],
             },
-            DummyVertexData {
+            VulkanPosition2DVertex {
                 position: [1.0, -1.0],
             },
-            DummyVertexData {
+            VulkanPosition2DVertex {
                 position: [-1.0, 1.0],
             },
-            DummyVertexData {
+            VulkanPosition2DVertex {
                 position: [1.0, -1.0],
             },
-            DummyVertexData {
+            VulkanPosition2DVertex {
                 position: [1.0, 1.0],
             },
-            DummyVertexData {
+            VulkanPosition2DVertex {
                 position: [-1.0, 1.0],
             },
         ]
@@ -57,13 +68,13 @@ impl DummyVertexData {
 
 #[repr(C)]
 #[derive(BufferContents, Vertex, Clone)]
-pub struct VulkanPositionVertexData {
+pub struct VulkanPositionVertex {
     #[format(R32G32B32_SFLOAT)]
     pub position: [f32; 3],
 }
 
-impl From<PositionVertexData> for VulkanPositionVertexData {
-    fn from(value: PositionVertexData) -> Self {
+impl From<PositionVertex> for VulkanPositionVertex {
+    fn from(value: PositionVertex) -> Self {
         Self {
             position: value.position.into(),
         }

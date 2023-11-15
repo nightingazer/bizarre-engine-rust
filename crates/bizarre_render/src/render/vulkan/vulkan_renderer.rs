@@ -45,7 +45,7 @@ use super::{
         ambient_frag, ambient_vert, deferred_frag, deferred_vert, directional_frag,
         directional_vert, editor_bg_frag, editor_bg_vert, floor_frag, floor_vert,
     },
-    vertex::{DummyVertexData, VulkanPositionVertexData, VulkanVertexData},
+    vertex::{VulkanColorNormalVertex, VulkanPosition2DVertex, VulkanPositionVertex},
 };
 
 pub struct VulkanRenderer {
@@ -77,7 +77,7 @@ pub struct VulkanRenderer {
     previous_frame_end: Option<Box<dyn GpuFuture>>,
 
     ambient_light: Subbuffer<AmbientLight>,
-    fullscreen_quad: Subbuffer<[DummyVertexData]>,
+    fullscreen_quad: Subbuffer<[VulkanPosition2DVertex]>,
     view: Mat4,
     projection: Mat4,
     view_projection: Mat4,
@@ -226,7 +226,7 @@ impl Renderer for VulkanRenderer {
             let deferred_vert = deferred_vert::load(device.clone())?;
             let deferred_frag = deferred_frag::load(device.clone())?;
 
-            create_graphics_pipeline::<VulkanVertexData>(
+            create_graphics_pipeline::<VulkanColorNormalVertex>(
                 deferred_vert,
                 deferred_frag,
                 deferred_pass.clone(),
@@ -240,7 +240,7 @@ impl Renderer for VulkanRenderer {
             let ambient_vert = ambient_vert::load(device.clone())?;
             let ambient_frag = ambient_frag::load(device.clone())?;
 
-            create_graphics_pipeline::<DummyVertexData>(
+            create_graphics_pipeline::<VulkanPosition2DVertex>(
                 ambient_vert,
                 ambient_frag,
                 lighting_pass.clone(),
@@ -254,7 +254,7 @@ impl Renderer for VulkanRenderer {
             let dir_vert = directional_vert::load(device.clone())?;
             let dir_frag = directional_frag::load(device.clone())?;
 
-            create_graphics_pipeline::<DummyVertexData>(
+            create_graphics_pipeline::<VulkanPosition2DVertex>(
                 dir_vert,
                 dir_frag,
                 lighting_pass.clone(),
@@ -304,7 +304,7 @@ impl Renderer for VulkanRenderer {
             &memory_allocator,
         )?;
 
-        let fullscreen_quad = DummyVertexData::list();
+        let fullscreen_quad = VulkanPosition2DVertex::list();
 
         let fullscreen_quad = Buffer::from_iter(
             &memory_allocator,
@@ -505,7 +505,7 @@ impl VulkanRenderer {
             render_package
                 .vertices
                 .iter()
-                .map(|i| VulkanVertexData::from(i.clone())),
+                .map(|i| VulkanColorNormalVertex::from(i.clone())),
         )?;
 
         let index_buffer = Buffer::from_iter(

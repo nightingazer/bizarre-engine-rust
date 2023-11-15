@@ -12,7 +12,7 @@ use bizarre_core::{
 };
 use bizarre_render::render_components::transform::Transform;
 use bizarre_render::render_components::Mesh;
-use bizarre_render::vertex::VertexData;
+use bizarre_render::vertex::ColorNormalVertex;
 use bizarre_render::{
     render_math::DirectionalLight,
     render_submitter::RenderSubmitter,
@@ -104,7 +104,7 @@ impl<'a> System<'a> for MeshSystem {
                     normal.w = 0.0;
                     let normal = model * normal;
                     let normal = vec4_to_vec3(&normal);
-                    VertexData {
+                    ColorNormalVertex {
                         position,
                         normal,
                         color: v.color,

@@ -4,11 +4,11 @@ use crate::{
     render_components::Mesh,
     render_math::{AmbientLight, DirectionalLight},
     render_package::RenderPackage,
-    vertex::VertexData,
+    vertex::ColorNormalVertex,
 };
 
 pub struct RenderSubmitter {
-    vertex_buffer: Vec<VertexData>,
+    vertex_buffer: Vec<ColorNormalVertex>,
     index_buffer: Vec<u32>,
     clear_color: [f32; 4],
     ambient_light: Option<AmbientLight>,
@@ -38,7 +38,7 @@ impl RenderSubmitter {
         }
     }
 
-    pub fn submit_vertices(&mut self, mut vertices: Vec<VertexData>) {
+    pub fn submit_vertices(&mut self, mut vertices: Vec<ColorNormalVertex>) {
         self.vertex_buffer.append(&mut vertices);
         let indices: Vec<u32> = (0..vertices.len() as u32).collect();
         self.insert_indices(indices.as_slice());

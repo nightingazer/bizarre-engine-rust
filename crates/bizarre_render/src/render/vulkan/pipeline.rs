@@ -18,7 +18,7 @@ use vulkano::{
     shader::ShaderModule,
 };
 
-use super::vertex::{DummyVertexData, VulkanPositionVertexData, VulkanVertexData};
+use super::vertex::{VulkanColorNormalVertex, VulkanPosition2DVertex, VulkanPositionVertex};
 
 pub fn create_editor_grid_graphics_pipeline(
     vertex_shader: Arc<ShaderModule>,
@@ -48,7 +48,7 @@ pub fn create_skybox_pipeline(
     device: Arc<Device>,
 ) -> Result<Arc<GraphicsPipeline>> {
     let pipeline = GraphicsPipeline::start()
-        .vertex_input_state(DummyVertexData::per_vertex())
+        .vertex_input_state(VulkanPosition2DVertex::per_vertex())
         .vertex_shader(vertex_shader.entry_point("main").unwrap(), ())
         .input_assembly_state(InputAssemblyState::new())
         .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())

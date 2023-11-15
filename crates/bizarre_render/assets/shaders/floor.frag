@@ -9,7 +9,7 @@ layout(location = 1) in float v_camera_distance;
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    vec2 line_width = vec2(0.02);
+    vec2 line_width = vec2(0.007);
 
     vec4 uv_ddxy = vec4(dFdx(v_frag_position), dFdy(v_frag_position));
     vec2 uv_deriv = vec2(length(uv_ddxy.xz), length(uv_ddxy.yw));

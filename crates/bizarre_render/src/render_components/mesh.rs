@@ -1,10 +1,10 @@
 use anyhow::Result;
 use specs::{Component, VecStorage};
 
-use crate::vertex::VertexData;
+use crate::vertex::ColorNormalVertex;
 
 pub struct Mesh {
-    pub vertices: Vec<VertexData>,
+    pub vertices: Vec<ColorNormalVertex>,
     pub indices: Vec<u32>,
 }
 
@@ -25,9 +25,9 @@ impl Mesh {
         )?;
 
         let mesh = &models[0].mesh;
-        let mut vertices: Vec<VertexData> = Vec::with_capacity(mesh.positions.len() / 3);
+        let mut vertices: Vec<ColorNormalVertex> = Vec::with_capacity(mesh.positions.len() / 3);
         for i in (0..(mesh.positions.len())).step_by(3) {
-            let vertex = VertexData {
+            let vertex = ColorNormalVertex {
                 position: [
                     mesh.positions[i],
                     mesh.positions[i + 1],
