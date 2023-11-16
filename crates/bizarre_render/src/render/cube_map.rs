@@ -1,40 +1,68 @@
-// use std::{fs::File, io::Read};
+use std::path::Path;
 
-// use vulkano::image::ImageDimensions;
+use anyhow::Result;
 
-// pub struct CubeMapSidePaths {
-//     pub front: String,
-//     pub back: String,
-//     pub top: String,
-//     pub bottom: String,
-//     pub right: String,
-//     pub left: String,
-// }
+pub struct CubeMap {
+    pub side_width: u32,
+    pub side_height: u32,
+    pub texture_data: [Vec<u8>; 6],
+}
 
-// pub struct CubeMap {
-//     pub side_width: u32,
-//     pub side_height: u32,
-// }
+impl CubeMap {
+    pub fn new(path: String) -> Result<Self> {
+        let path = Path::new(&path);
 
-// fn load_image(path: String) -> (Vec<u8>, ImageDimensions) {
-//     let bytes = match std::fs::read(path) {
-//         Ok(bytes) => bytes,
-//         Err(e) => panic!("Failed to load image at path \"{}\": {:?}", path, e),
-//     };
+        let paths = [
+            path.join("px.png"),
+            path.join("nx.png"),
+            path.join("py.png"),
+            path.join("ny.png"),
+            path.join("pz.png"),
+            path.join("nz.png"),
+        ];
 
-//     let cursor = std::io::Cursor::new(bytes);
-//     let decoder = png::Decoder::new(cursor);
-//     let mut reader = decoder.read_info().unwrap();
-//     let info = reader.info();
-//     let image_dimensions = ImageDimensions::Dim2d {
-//         width: info.width,
-//         height: info.height,
-//         array_layers: 1,
-//     };
+        let mut dim = [0; 2];
 
-//     let buf_size = info.bytes_per_pixel() * info.width as usize * info.height as usize;
+        let texture_data_vec = paths.iter().map(|p| {
+            let (image, d) = load_image(p);
+            dim = d;
+            image
+        });
 
-//     let mut buf = vec![0; buf_size];
-//     reader.next_frame(&mut buf).unwrap();
-//     buf
-// }
+        let mut texture_data: [Vec<u8>; 6] = Default::default();
+
+        for (i, data) in texture_data_vec.enumerate() {
+            texture_data[i] = data.clone();
+        }
+
+        let side_width = dim[0];
+        let side_height = dim[1];
+
+        Ok(Self {
+            side_width,
+            side_height,
+            texture_data,
+        })
+    }
+}
+
+fn load_image(path: impl AsRef<Path>) -> (Vec<u8>, [u32; 2]) {
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => panic!(
+            "Failed to load image at path \"{}\": {:?}",
+            path.as_ref().to_str().unwrap(),
+            e
+        ),
+    };
+
+    let cursor = std::io::Cursor::new(bytes);
+    let decoder = png::Decoder::new(cursor);
+    let mut reader = decoder.read_info().unwrap();
+
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).unwrap();
+    let bytes: Vec<u8> = buf[..info.buffer_size()].into();
+
+    (bytes, [info.width, info.height])
+}

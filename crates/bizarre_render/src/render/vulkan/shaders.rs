@@ -52,21 +52,21 @@ pub mod directional_frag {
     }
 }
 
-pub mod editor_bg_vert {
+pub mod skybox_vert {
     use vulkano_shaders::shader;
 
     shader! {
         ty: "vertex",
-        path: "assets/shaders/editor_background.vert"
+        path: "assets/shaders/skybox.vert"
     }
 }
 
-pub mod editor_bg_frag {
+pub mod skybox_frag {
     use vulkano_shaders::shader;
 
     shader! {
         ty: "fragment",
-        path: "assets/shaders/editor_background.frag"
+        path: "assets/shaders/skybox.frag"
     }
 }
 

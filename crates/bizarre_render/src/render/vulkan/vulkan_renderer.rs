@@ -1,4 +1,7 @@
-use std::{any::Any, sync::Arc};
+use std::{
+    any::Any,
+    sync::{Arc, Once},
+};
 
 use anyhow::{anyhow, bail, Result};
 use bizarre_logger::{core_debug, core_error};
@@ -17,10 +20,14 @@ use vulkano::{
         QueueCreateInfo, QueueFlags,
     },
     image::{view::ImageView, AttachmentImage, ImageFormatInfo},
-    instance::{Instance, InstanceCreateInfo},
+    instance::{
+        debug::{DebugUtilsMessenger, DebugUtilsMessengerCreateInfo},
+        Instance, InstanceCreateInfo,
+    },
     memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
     pipeline::{graphics::viewport::Viewport, GraphicsPipeline, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, RenderPass, Subpass},
+    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
     swapchain::{
         self, AcquireError, Surface, SurfaceApi, Swapchain, SwapchainAcquireFuture,
         SwapchainCreateInfo, SwapchainCreationError, SwapchainPresentInfo,
@@ -31,8 +38,7 @@ use vulkano::{
 use vulkano_win::create_surface_from_winit;
 
 use crate::{
-    render_math::AmbientLight, render_package::RenderPackage, renderer::Renderer,
-    vertex::CUBE_MAP_VERTICES,
+    cube_map::CubeMap, render_math::AmbientLight, render_package::RenderPackage, renderer::Renderer,
 };
 
 use super::{
@@ -43,9 +49,10 @@ use super::{
     render_pass::create_render_pass,
     shaders::{
         ambient_frag, ambient_vert, deferred_frag, deferred_vert, directional_frag,
-        directional_vert, editor_bg_frag, editor_bg_vert, floor_frag, floor_vert,
+        directional_vert, floor_frag, floor_vert, skybox_frag, skybox_vert,
     },
     vertex::{VulkanColorNormalVertex, VulkanPosition2DVertex, VulkanPositionVertex},
+    vulkan_cube_map::VulkanCubeMap,
 };
 
 pub struct VulkanRenderer {
@@ -63,7 +70,7 @@ pub struct VulkanRenderer {
     deferred_pipeline: Arc<GraphicsPipeline>,
     ambient_pipeline: Arc<GraphicsPipeline>,
     directional_pipeline: Arc<GraphicsPipeline>,
-    editor_background_pipeline: Arc<GraphicsPipeline>,
+    skybox_pipeline: Arc<GraphicsPipeline>,
     floor_pipeline: Arc<GraphicsPipeline>,
 
     framebuffers: Vec<Arc<Framebuffer>>,
@@ -81,7 +88,10 @@ pub struct VulkanRenderer {
     view: Mat4,
     projection: Mat4,
     view_projection: Mat4,
+    skybox_cube_map: Option<VulkanCubeMap>,
 }
+
+static mut DEBUG_MESSENGER: Option<DebugUtilsMessenger> = None;
 
 #[derive(Debug, thiserror::Error)]
 enum RenderException {
@@ -104,6 +114,16 @@ impl Renderer for VulkanRenderer {
                     ..Default::default()
                 },
             )?
+        };
+
+        unsafe {
+            let dbg_msg = DebugUtilsMessenger::new(
+                instance.clone(),
+                DebugUtilsMessengerCreateInfo::user_callback(Arc::new(|msg| {
+                    println!("Validation layer: {:?}", msg.description);
+                })),
+            )?;
+            DEBUG_MESSENGER = Some(dbg_msg);
         };
 
         let device_extensions = DeviceExtensions {
@@ -264,11 +284,11 @@ impl Renderer for VulkanRenderer {
             )?
         };
 
-        let editor_background_pipeline = {
-            let vert = editor_bg_vert::load(device.clone())?;
-            let frag = editor_bg_frag::load(device.clone())?;
+        let skybox_pipeline = {
+            let vert = skybox_vert::load(device.clone())?;
+            let frag = skybox_frag::load(device.clone())?;
 
-            let pass = Subpass::from(render_pass.clone(), 0).ok_or(anyhow!(
+            let pass = Subpass::from(render_pass.clone(), 2).ok_or(anyhow!(
                 "Failed to create editor background pass from render pass"
             ))?;
 
@@ -336,7 +356,7 @@ impl Renderer for VulkanRenderer {
             deferred_pipeline,
             ambient_pipeline,
             directional_pipeline,
-            editor_background_pipeline,
+            skybox_pipeline,
             floor_pipeline,
 
             framebuffers,
@@ -355,6 +375,7 @@ impl Renderer for VulkanRenderer {
             fullscreen_quad,
 
             previous_frame_end,
+            skybox_cube_map: None,
         })
     }
 
@@ -380,8 +401,6 @@ impl Renderer for VulkanRenderer {
             self.deferred_render(&render_package)?;
         }
 
-        self.render_editor_bg()?;
-
         self.commands
             .as_mut()
             .unwrap()
@@ -397,6 +416,7 @@ impl Renderer for VulkanRenderer {
             .unwrap()
             .next_subpass(SubpassContents::Inline)?;
 
+        self.render_skybox()?;
         self.floor_render()?;
 
         self.finish_render()?;
@@ -465,6 +485,20 @@ impl VulkanRenderer {
             self.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )?;
+
+        if self.skybox_cube_map.is_none() {
+            self.skybox_cube_map = Some({
+                let cube_map = CubeMap::new("assets/textures/sky_cubemap".into())
+                    .expect("Failed to load cube map");
+                VulkanCubeMap::new(
+                    cube_map,
+                    &self.memory_allocator,
+                    self.device.active_queue_family_indices(),
+                    &mut commands,
+                )
+                .expect("Failed to convert cube map to vulkan format")
+            })
+        }
 
         commands
             .begin_render_pass(
@@ -635,11 +669,24 @@ impl VulkanRenderer {
         Ok(())
     }
 
-    fn render_editor_bg(&mut self) -> Result<()> {
-        let mut commands = self.commands.as_mut().unwrap();
+    fn render_skybox(&mut self) -> Result<()> {
+        let commands = self.commands.as_mut().unwrap();
+
+        let sampler = Sampler::new(
+            self.device.clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                mipmap_mode: SamplerMipmapMode::Linear,
+                address_mode: [SamplerAddressMode::ClampToEdge; 3],
+                ..Default::default()
+            },
+        )?;
+
+        let texture = self.skybox_cube_map.as_ref().unwrap();
 
         let vp = {
-            let vp = editor_bg_vert::Uniforms {
+            let vp = skybox_vert::Uniforms {
                 view: self.view.into(),
                 projection: self.projection.into(),
             };
@@ -658,17 +705,20 @@ impl VulkanRenderer {
             )?
         };
 
-        let layout = self.editor_background_pipeline.layout();
+        let layout = self.skybox_pipeline.layout();
         let set_layout = layout.set_layouts().first().unwrap();
 
         let set = PersistentDescriptorSet::new(
             &self.descriptor_set_allocator,
             set_layout.clone(),
-            [WriteDescriptorSet::buffer(0, vp)],
+            [
+                WriteDescriptorSet::buffer(0, vp),
+                WriteDescriptorSet::image_view_sampler(1, texture.texture.clone(), sampler.clone()),
+            ],
         )?;
 
         commands
-            .bind_pipeline_graphics(self.editor_background_pipeline.clone())
+            .bind_pipeline_graphics(self.skybox_pipeline.clone())
             .bind_vertex_buffers(0, self.fullscreen_quad.clone())
             .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)
             .draw(self.fullscreen_quad.len() as u32, 1, 0, 0)
