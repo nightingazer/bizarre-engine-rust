@@ -24,15 +24,6 @@ impl Layer for SandboxLayer {
         event_bus: &bizarre_engine::events::observer::EventBus,
         world: &mut bizarre_engine::core::specs::World,
     ) -> Result<()> {
-        world
-            .create_entity()
-            .with(Transform {
-                position: [2.5, 1.0, 0.0].into(),
-                ..Default::default()
-            })
-            .with(Mesh::from_obj("assets/models/cube.obj".to_string())?)
-            .build();
-
         // world
         //     .create_entity()
         //     .with(Transform {
@@ -41,10 +32,35 @@ impl Layer for SandboxLayer {
         //     .with(Mesh::from_obj("assets/models/cube.obj".to_string())?)
         //     .build();
 
+        let grid_half_szie = 12;
+        let step = 3;
+
+        for x in (-grid_half_szie..=grid_half_szie).step_by(step) {
+            for z in (-grid_half_szie..=grid_half_szie).step_by(step) {
+                world
+                    .create_entity()
+                    .with(Transform {
+                        position: [x as f32, 1.0, z as f32].into(),
+                        ..Default::default()
+                    })
+                    .with(Mesh::from_obj("assets/models/cube.obj".to_string())?)
+                    .build();
+
+                world
+                    .create_entity()
+                    .with(Transform {
+                        position: [x as f32, 3.0, z as f32].into(),
+                        ..Default::default()
+                    })
+                    .with(Mesh::from_obj("assets/models/monkey.obj".to_string())?)
+                    .build();
+            }
+        }
+
         world
             .create_entity()
             .with(Transform {
-                position: [-2.5, 1.0, 0.0].into(),
+                position: [2.5, 1.0, 1.0].into(),
                 ..Default::default()
             })
             .with(Mesh::from_obj("assets/models/cube.obj".to_string())?)
@@ -53,16 +69,7 @@ impl Layer for SandboxLayer {
         world
             .create_entity()
             .with(Transform {
-                position: [-2.5, 3.0, 0.0].into(),
-                ..Default::default()
-            })
-            .with(Mesh::from_obj("assets/models/monkey.obj".to_string())?)
-            .build();
-
-        world
-            .create_entity()
-            .with(Transform {
-                position: [2.5, 3.0, 0.0].into(),
+                position: [2.5, 3.0, 1.0].into(),
                 ..Default::default()
             })
             .with(Mesh::from_obj(

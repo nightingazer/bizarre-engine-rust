@@ -15,6 +15,12 @@ members = [
 
 default-members = ["sandbox"]
 
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
 [workspace.dependencies]
 bitflags = "2.4.1"
 anyhow = "1.0.75"
