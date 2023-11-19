@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use bizarre_events::observer::{EventBus, Observer};
-use bizarre_logger::{core_critical, core_info};
+use bizarre_logger::{core_critical, core_debug, core_info};
 use specs::WorldExt;
 
 use crate::{
@@ -95,6 +95,8 @@ impl App {
             let delta_time = DeltaTime(frame_duration.as_secs_f32() + sleep_duration.as_secs_f32());
             *running_time = RunningTime(running_time.0 + delta_time.0);
             *delta_time_res = delta_time;
+
+            core_debug!("Frame time: {:?}", frame_duration);
 
             if sleep_duration > Duration::from_millis(0) {
                 std::thread::sleep(sleep_duration);
