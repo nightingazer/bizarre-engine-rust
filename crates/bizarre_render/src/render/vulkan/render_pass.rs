@@ -11,28 +11,28 @@ pub fn create_render_pass(
         device.clone(),
         attachments: {
             final_color: {
-                load: Clear,
-                store: Store,
                 format: swapchain.image_format(),
                 samples: 1,
+                load_op: Clear,
+                store_op: Store,
             },
             color: {
-                load: Clear,
-                store: DontCare,
                 format: Format::A2B10G10R10_UNORM_PACK32,
                 samples: 1,
+                load_op: Clear,
+                store_op: DontCare,
             },
             normals: {
-                load: Clear,
-                store: DontCare,
                 format: Format::R16G16B16A16_SFLOAT,
                 samples: 1,
+                load_op: Clear,
+                store_op: DontCare,
             },
             depth: {
-                load: Clear,
-                store: DontCare,
                 format: Format::D16_UNORM,
                 samples: 1,
+                load_op: Clear,
+                store_op: DontCare,
             }
         },
         passes: [

@@ -12,15 +12,11 @@ use bizarre_core::{
 };
 use bizarre_render::render_components::transform::Transform;
 use bizarre_render::render_components::Mesh;
-use bizarre_render::vertex::ColorNormalVertex;
 use bizarre_render::{
     render_math::DirectionalLight,
     render_submitter::RenderSubmitter,
     renderer::{create_renderer, Renderer, RendererBackend},
 };
-use nalgebra_glm::vec3_to_vec4;
-use nalgebra_glm::vec4_to_vec3;
-use nalgebra_glm::Mat4;
 use specs::Join;
 use winit::{event_loop::ControlFlow, platform::run_return::EventLoopExtRunReturn};
 
@@ -86,41 +82,13 @@ impl<'a> System<'a> for MeshSystem {
     fn run(&mut self, data: Self::SystemData) {
         let (mut submitter, meshes, transforms) = data;
 
-        let mut transformed_meshes: Vec<Mesh> = Vec::with_capacity(meshes.count());
+        let mut submissions: Vec<(&Mesh, &Transform)> = Vec::with_capacity(meshes.count());
 
-        for (mesh, transform) in (&meshes, &transforms).join() {
-            let model = Mat4::from(transform);
-
-            let vertices = mesh
-                .vertices
-                .iter()
-                .cloned()
-                .map(|v| {
-                    let mut position = vec3_to_vec4(&v.position);
-                    position.w = 1.0;
-                    let position = model * position;
-                    let position = vec4_to_vec3(&position);
-                    let mut normal = vec3_to_vec4(&v.normal);
-                    normal.w = 0.0;
-                    let normal = model * normal;
-                    let normal = vec4_to_vec3(&normal);
-                    ColorNormalVertex {
-                        position,
-                        normal,
-                        color: v.color,
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            let transformed_mesh = Mesh {
-                vertices,
-                indices: mesh.indices.clone(),
-            };
-
-            transformed_meshes.push(transformed_mesh);
+        for submission in (&meshes, &transforms).join() {
+            submissions.push(submission);
         }
 
-        submitter.submit_meshes(&transformed_meshes);
+        submitter.submit_meshes(submissions.as_slice());
     }
 }
 

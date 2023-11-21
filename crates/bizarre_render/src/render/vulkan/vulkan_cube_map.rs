@@ -8,33 +8,26 @@ use vulkano::{
     },
     format::Format,
     image::{
-        sys::{Image, ImageCreateInfo},
-        view::{ImageView, ImageViewCreateInfo},
-        ImageCreateFlags, ImageDimensions, ImageLayout, ImageSubresourceRange, ImageUsage,
-        ImageViewType, ImmutableImage, MipmapsCount,
+        sys::ImageCreateInfo,
+        view::{ImageView, ImageViewCreateInfo, ImageViewType},
+        Image, ImageCreateFlags, ImageLayout, ImageSubresourceRange, ImageType, ImageUsage,
     },
-    memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
 };
 
 use crate::cube_map::{self, CubeMap};
 
 pub struct VulkanCubeMap {
-    pub texture: Arc<ImageView<ImmutableImage>>,
+    pub texture: Arc<ImageView>,
 }
 
 impl VulkanCubeMap {
     pub fn new(
         cube_map: CubeMap,
-        memory_allocator: &StandardMemoryAllocator,
+        memory_allocator: Arc<StandardMemoryAllocator>,
         queue_family_indices: &[u32],
         cmd_buffer: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) -> Result<Self> {
-        let dimensions = ImageDimensions::Dim2d {
-            width: cube_map.side_width,
-            height: cube_map.side_height,
-            array_layers: 6,
-        };
-
         let texture_size = cube_map
             .texture_data
             .iter()
@@ -54,15 +47,21 @@ impl VulkanCubeMap {
 
         let format = Format::R8G8B8A8_SRGB;
 
-        let (image, image_init) = ImmutableImage::uninitialized(
-            memory_allocator,
-            dimensions,
-            format,
-            MipmapsCount::One,
-            ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
-            ImageCreateFlags::CUBE_COMPATIBLE,
-            ImageLayout::ShaderReadOnlyOptimal,
-            queue_family_indices.iter().cloned(),
+        let image = Image::new(
+            memory_allocator.clone(),
+            ImageCreateInfo {
+                array_layers: 6,
+                extent: [cube_map.side_width, cube_map.side_height, 1],
+                image_type: ImageType::Dim2d,
+                format,
+                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                flags: ImageCreateFlags::CUBE_COMPATIBLE,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                ..Default::default()
+            },
         )?;
 
         let buffer = Buffer::from_iter(
@@ -72,29 +71,21 @@ impl VulkanCubeMap {
                 ..Default::default()
             },
             AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_RANDOM_ACCESS,
                 ..Default::default()
             },
             data.clone(),
         )?;
 
-        cmd_buffer.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(buffer, image_init));
-
-        // let image = ImmutableImage::from_iter(
-        //     memory_allocator,
-        //     data,
-        //     dimensions,
-        //     MipmapsCount::One,
-        //     Format::R8G8B8A8_SRGB,
-        //     cmd_buffer,
-        // )?;
+        cmd_buffer.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(buffer, image.clone()));
 
         let view = ImageView::new(
             image.clone(),
             ImageViewCreateInfo {
                 view_type: ImageViewType::Cube,
                 subresource_range: ImageSubresourceRange::from_parameters(format, 1, 6),
-                format: Some(format),
+                format: format,
                 usage: ImageUsage::SAMPLED,
                 ..Default::default()
             },

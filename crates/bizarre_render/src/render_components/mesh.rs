@@ -3,6 +3,7 @@ use specs::{Component, VecStorage};
 
 use crate::vertex::ColorNormalVertex;
 
+#[derive(Clone, Debug)]
 pub struct Mesh {
     pub vertices: Vec<ColorNormalVertex>,
     pub indices: Vec<u32>,

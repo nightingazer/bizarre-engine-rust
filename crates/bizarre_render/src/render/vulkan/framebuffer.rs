@@ -3,43 +3,31 @@ use std::sync::Arc;
 use anyhow::Result;
 use vulkano::{
     format::Format,
-    image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
+    image::{view::ImageView, Image},
     memory::allocator::StandardMemoryAllocator,
     pipeline::graphics::viewport::Viewport,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
 };
 
+use super::vulkan_image::{create_color_attachment, create_depth_attachment};
+
 pub fn window_size_dependent_setup(
-    images: &[Arc<SwapchainImage>],
+    images: &[Arc<Image>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
-    allocator: &StandardMemoryAllocator,
-) -> Result<(
-    Vec<Arc<Framebuffer>>,
-    Arc<ImageView<AttachmentImage>>,
-    Arc<ImageView<AttachmentImage>>,
-)> {
-    let dimensions = images[0].dimensions().width_height();
-    viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
-    viewport.origin = [0.0, dimensions[1] as f32];
+    allocator: Arc<StandardMemoryAllocator>,
+) -> Result<(Vec<Arc<Framebuffer>>, Arc<ImageView>, Arc<ImageView>)> {
+    let extent = images[0].extent();
+    viewport.extent = [extent[0] as f32, -(extent[1] as f32)];
+    viewport.offset = [0.0, extent[1] as f32];
 
-    let color_buffer = ImageView::new_default(AttachmentImage::transient_input_attachment(
-        allocator,
-        dimensions,
-        Format::A2B10G10R10_UNORM_PACK32,
-    )?)?;
+    let color_buffer =
+        create_color_attachment(allocator.clone(), extent, Format::A2B10G10R10_UNORM_PACK32)?;
 
-    let normals_buffer = ImageView::new_default(AttachmentImage::transient_input_attachment(
-        allocator,
-        dimensions,
-        Format::R16G16B16A16_SFLOAT,
-    )?)?;
+    let normals_buffer =
+        create_color_attachment(allocator.clone(), extent, Format::R16G16B16A16_SFLOAT)?;
 
-    let depth_buffer = ImageView::new_default(AttachmentImage::transient(
-        allocator,
-        dimensions,
-        Format::D16_UNORM,
-    )?)?;
+    let depth_buffer = create_depth_attachment(allocator.clone(), extent, Format::D16_UNORM)?;
 
     let framebuffers = images
         .iter()

@@ -1,39 +1,43 @@
-use std::{
-    any::Any,
-    sync::{Arc, Once},
-};
+use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Result};
-use bizarre_logger::{core_debug, core_error};
+use bizarre_logger::{core_debug, core_error, core_info, core_warn};
 use nalgebra_glm::{look_at, perspective, vec3, Mat4};
 use vulkano::{
-    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
+    buffer::{subbuffer::BufferWriteGuard, Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
-        PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
+        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        RenderPassBeginInfo, SubpassBeginInfo, SubpassContents, SubpassEndInfo,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+        allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo},
+        PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Queue,
         QueueCreateInfo, QueueFlags,
     },
-    image::{view::ImageView, AttachmentImage, ImageFormatInfo},
+    image::{
+        sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
+        view::ImageView,
+    },
     instance::{
-        debug::{DebugUtilsMessenger, DebugUtilsMessengerCreateInfo},
+        debug::{
+            DebugUtilsMessageSeverity, DebugUtilsMessageType, DebugUtilsMessenger,
+            DebugUtilsMessengerCallback, DebugUtilsMessengerCallbackData,
+            DebugUtilsMessengerCreateInfo,
+        },
         Instance, InstanceCreateInfo,
     },
-    memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{graphics::viewport::Viewport, GraphicsPipeline, Pipeline, PipelineBindPoint},
-    render_pass::{Framebuffer, RenderPass, Subpass},
-    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
+    render_pass::{RenderPass, Subpass},
     swapchain::{
-        self, AcquireError, Surface, SurfaceApi, Swapchain, SwapchainAcquireFuture,
-        SwapchainCreateInfo, SwapchainCreationError, SwapchainPresentInfo,
+        self, Surface, Swapchain, SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
     },
-    sync::{FlushError, GpuFuture},
-    VulkanLibrary,
+    sync::GpuFuture,
+    Validated, VulkanError, VulkanLibrary,
 };
 use vulkano_win::create_surface_from_winit;
 
@@ -42,18 +46,42 @@ use crate::{
 };
 
 use super::{
+    frame::VulkanFrame,
     framebuffer::window_size_dependent_setup,
     pipeline::{
-        create_editor_grid_graphics_pipeline, create_graphics_pipeline, create_skybox_pipeline,
+        create_deferred_pipeline, create_editor_grid_graphics_pipeline, create_lighting_pipeline,
+        create_skybox_pipeline,
     },
     render_pass::create_render_pass,
     shaders::{
         ambient_frag, ambient_vert, deferred_frag, deferred_vert, directional_frag,
         directional_vert, floor_frag, floor_vert, skybox_frag, skybox_vert,
     },
-    vertex::{VulkanColorNormalVertex, VulkanPosition2DVertex, VulkanPositionVertex},
+    vertex::{VulkanColorNormalVertex, VulkanPosition2DVertex},
+    vulkan_buffer::{create_ibo, create_ubo, create_vbo},
     vulkan_cube_map::VulkanCubeMap,
 };
+
+fn debug_messenger_callback(
+    severity: DebugUtilsMessageSeverity,
+    message_type: DebugUtilsMessageType,
+    callback_data: DebugUtilsMessengerCallbackData<'_>,
+) {
+    match severity {
+        DebugUtilsMessageSeverity::INFO => {
+            core_info!("Vulkan({:?}): {}", message_type, callback_data.message);
+        }
+        DebugUtilsMessageSeverity::WARNING => {
+            core_warn!("Vulkan({:?}): {}", message_type, callback_data.message);
+        }
+        DebugUtilsMessageSeverity::ERROR => {
+            core_warn!("Vulkan({:?}): {}", message_type, callback_data.message);
+        }
+        _ => {
+            core_debug!("Vulkan({:?}): {}", message_type, callback_data.message);
+        }
+    }
+}
 
 pub struct VulkanRenderer {
     instance: Arc<Instance>,
@@ -63,19 +91,22 @@ pub struct VulkanRenderer {
     swapchain: Arc<Swapchain>,
 
     memory_allocator: Arc<StandardMemoryAllocator>,
-    descriptor_set_allocator: StandardDescriptorSetAllocator,
-    command_buffer_allocator: StandardCommandBufferAllocator,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
 
     render_pass: Arc<RenderPass>,
+
+    frames: Vec<VulkanFrame>,
+
     deferred_pipeline: Arc<GraphicsPipeline>,
+
     ambient_pipeline: Arc<GraphicsPipeline>,
     directional_pipeline: Arc<GraphicsPipeline>,
     skybox_pipeline: Arc<GraphicsPipeline>,
     floor_pipeline: Arc<GraphicsPipeline>,
 
-    framebuffers: Vec<Arc<Framebuffer>>,
-    color_buffer: Arc<ImageView<AttachmentImage>>,
-    normal_buffer: Arc<ImageView<AttachmentImage>>,
+    color_buffer: Arc<ImageView>,
+    normal_buffer: Arc<ImageView>,
     viewport: Viewport,
 
     commands: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
@@ -91,8 +122,6 @@ pub struct VulkanRenderer {
     skybox_cube_map: Option<VulkanCubeMap>,
 }
 
-static mut DEBUG_MESSENGER: Option<DebugUtilsMessenger> = None;
-
 #[derive(Debug, thiserror::Error)]
 enum RenderException {
     #[error("No vertices to render")]
@@ -103,27 +132,39 @@ impl Renderer for VulkanRenderer {
     fn new(window: Arc<winit::window::Window>) -> Result<Self> {
         let instance = {
             let library = VulkanLibrary::new()?;
+
+            // TODO: Replace that with Surface::required_extensions()
             let mut extensions = vulkano_win::required_extensions(&library);
             extensions.ext_debug_utils = true;
+
+            let layers = vec!["VK_LAYER_KHRONOS_validation".to_owned()];
+
             Instance::new(
                 library,
                 InstanceCreateInfo {
                     enabled_extensions: extensions,
-                    enumerate_portability: true,
+                    enabled_layers: layers,
                     max_api_version: Some(vulkano::Version::V1_1),
                     ..Default::default()
                 },
             )?
         };
 
-        unsafe {
-            let dbg_msg = DebugUtilsMessenger::new(
+        let _debug_callback = unsafe {
+            DebugUtilsMessenger::new(
                 instance.clone(),
-                DebugUtilsMessengerCreateInfo::user_callback(Arc::new(|msg| {
-                    println!("Validation layer: {:?}", msg.description);
-                })),
-            )?;
-            DEBUG_MESSENGER = Some(dbg_msg);
+                DebugUtilsMessengerCreateInfo {
+                    message_severity: DebugUtilsMessageSeverity::INFO
+                        | DebugUtilsMessageSeverity::WARNING
+                        | DebugUtilsMessageSeverity::ERROR,
+                    message_type: DebugUtilsMessageType::GENERAL
+                        | DebugUtilsMessageType::PERFORMANCE
+                        | DebugUtilsMessageType::VALIDATION,
+                    ..DebugUtilsMessengerCreateInfo::user_callback(
+                        DebugUtilsMessengerCallback::new(debug_messenger_callback),
+                    )
+                },
+            )
         };
 
         let device_extensions = DeviceExtensions {
@@ -170,7 +211,7 @@ impl Renderer for VulkanRenderer {
 
         let queue = queues.next().ok_or(anyhow!("No queues found"))?;
 
-        let (swapchain, _images) = {
+        let (swapchain, images) = {
             let caps = device
                 .physical_device()
                 .surface_capabilities(&surface, Default::default())?;
@@ -182,15 +223,13 @@ impl Renderer for VulkanRenderer {
                 .next()
                 .ok_or(anyhow!("No supported alpha found"))?;
 
-            let image_format = Some(
-                device
-                    .physical_device()
-                    .surface_formats(&surface, Default::default())?
-                    .iter()
-                    .next()
-                    .ok_or(anyhow!("No supported image formats found"))?
-                    .0,
-            );
+            let image_format = device
+                .physical_device()
+                .surface_formats(&surface, Default::default())?
+                .iter()
+                .next()
+                .ok_or(anyhow!("No supported image formats found"))?
+                .0;
             let image_extent: [u32; 2] = window.inner_size().into();
 
             Swapchain::new(
@@ -208,22 +247,16 @@ impl Renderer for VulkanRenderer {
         };
 
         let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-        let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
-        let command_buffer_allocator =
-            StandardCommandBufferAllocator::new(device.clone(), Default::default());
+        let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(
+            device.clone(),
+            StandardDescriptorSetAllocatorCreateInfo::default(),
+        ));
+        let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
+            device.clone(),
+            StandardCommandBufferAllocatorCreateInfo::default(),
+        ));
 
-        let ambient_light = Buffer::from_data(
-            &memory_allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::UNIFORM_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
-                ..Default::default()
-            },
-            AmbientLight::default(),
-        )?;
+        let ambient_light = create_ubo(memory_allocator.clone(), AmbientLight::default())?;
 
         let aspect = window.inner_size().width as f32 / window.inner_size().height as f32;
         let projection = perspective(aspect, 90.0f32.to_radians(), 0.1, 250.0);
@@ -246,13 +279,12 @@ impl Renderer for VulkanRenderer {
             let deferred_vert = deferred_vert::load(device.clone())?;
             let deferred_frag = deferred_frag::load(device.clone())?;
 
-            create_graphics_pipeline::<VulkanColorNormalVertex>(
+            create_deferred_pipeline::<VulkanColorNormalVertex>(
                 deferred_vert,
                 deferred_frag,
                 deferred_pass.clone(),
                 device.clone(),
-                None,
-                None,
+                deferred_pass.num_color_attachments(),
             )?
         };
 
@@ -260,13 +292,12 @@ impl Renderer for VulkanRenderer {
             let ambient_vert = ambient_vert::load(device.clone())?;
             let ambient_frag = ambient_frag::load(device.clone())?;
 
-            create_graphics_pipeline::<VulkanPosition2DVertex>(
+            create_lighting_pipeline(
                 ambient_vert,
                 ambient_frag,
                 lighting_pass.clone(),
                 device.clone(),
-                Some(true),
-                Some(lighting_pass.num_color_attachments()),
+                lighting_pass.num_color_attachments(),
             )?
         };
 
@@ -274,13 +305,12 @@ impl Renderer for VulkanRenderer {
             let dir_vert = directional_vert::load(device.clone())?;
             let dir_frag = directional_frag::load(device.clone())?;
 
-            create_graphics_pipeline::<VulkanPosition2DVertex>(
+            create_lighting_pipeline(
                 dir_vert,
                 dir_frag,
                 lighting_pass.clone(),
                 device.clone(),
-                Some(true),
-                Some(lighting_pass.num_color_attachments()),
+                lighting_pass.num_color_attachments(),
             )?
         };
 
@@ -312,34 +342,58 @@ impl Renderer for VulkanRenderer {
         };
 
         let mut viewport = Viewport {
-            origin: [0.0, 0.0],
-            dimensions: [0.0, 0.0],
-            depth_range: 0.0..1.0,
+            extent: [0.0, 0.0],
+            offset: [0.0, 0.0],
+            depth_range: 0.0..=1.0,
         };
 
         let (framebuffers, color_buffer, normal_buffer) = window_size_dependent_setup(
-            &_images,
+            &images,
             render_pass.clone(),
             &mut viewport,
-            &memory_allocator,
+            memory_allocator.clone(),
         )?;
 
         let fullscreen_quad = VulkanPosition2DVertex::list();
 
-        let fullscreen_quad = Buffer::from_iter(
-            &memory_allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::VERTEX_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
-                ..Default::default()
-            },
-            fullscreen_quad.into_iter(),
-        )?;
+        let fullscreen_quad = create_vbo(memory_allocator.clone(), fullscreen_quad.into_iter())?;
 
         let previous_frame_end = Some(Box::new(vulkano::sync::now(device.clone())) as Box<_>);
+
+        let frames = framebuffers
+            .iter()
+            .enumerate()
+            .map(|(i, framebuffer)| {
+                let (deferred_set, deferred_ubo) = {
+                    let ubo = deferred_vert::UBO {
+                        view_projection: view_projection.into(),
+                        model: [Mat4::default().into(); 100],
+                    };
+
+                    let ubo = create_ubo(memory_allocator.clone(), ubo)?;
+
+                    let layout = deferred_pipeline.layout().set_layouts().first().unwrap();
+
+                    let set = PersistentDescriptorSet::new(
+                        &descriptor_set_allocator,
+                        layout.clone(),
+                        [WriteDescriptorSet::buffer(0, ubo.clone())],
+                        [],
+                    )?;
+
+                    (set, ubo)
+                };
+
+                let frame = VulkanFrame {
+                    deferred_set,
+                    deferred_ubo,
+                    frame_index: i as u32,
+                    framebuffer: framebuffer.clone(),
+                };
+
+                Ok(frame)
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(Self {
             instance,
@@ -353,13 +407,15 @@ impl Renderer for VulkanRenderer {
             command_buffer_allocator,
 
             render_pass,
+            frames,
+
             deferred_pipeline,
+
             ambient_pipeline,
             directional_pipeline,
             skybox_pipeline,
             floor_pipeline,
 
-            framebuffers,
             color_buffer,
             normal_buffer,
             viewport,
@@ -401,20 +457,26 @@ impl Renderer for VulkanRenderer {
             self.deferred_render(&render_package)?;
         }
 
-        self.commands
-            .as_mut()
-            .unwrap()
-            .next_subpass(SubpassContents::Inline)?;
+        self.commands.as_mut().unwrap().next_subpass(
+            SubpassEndInfo::default(),
+            SubpassBeginInfo {
+                contents: SubpassContents::Inline,
+                ..Default::default()
+            },
+        )?;
 
         if !skip_render {
             self.ambient_render(&render_package)?;
             self.directional_render(&render_package)?;
         }
 
-        self.commands
-            .as_mut()
-            .unwrap()
-            .next_subpass(SubpassContents::Inline)?;
+        self.commands.as_mut().unwrap().next_subpass(
+            SubpassEndInfo::default(),
+            SubpassBeginInfo {
+                contents: SubpassContents::Inline,
+                ..Default::default()
+            },
+        )?;
 
         self.render_skybox()?;
         self.floor_render()?;
@@ -452,11 +514,14 @@ impl VulkanRenderer {
         let (image_index, suboptimal, acquire_future) =
             match swapchain::acquire_next_image(self.swapchain.clone(), None) {
                 Ok(r) => r,
-                Err(AcquireError::OutOfDate) => {
-                    self.recreate_swapchain()?;
-                    return Ok(());
-                }
-                Err(e) => return Err(anyhow!(e)),
+                Err(Validated::Error(e)) => match e {
+                    VulkanError::OutOfDate => {
+                        self.recreate_swapchain()?;
+                        return Ok(());
+                    }
+                    _ => bail!(e),
+                },
+                Err(e) => bail!(e),
             };
 
         if suboptimal {
@@ -481,7 +546,7 @@ impl VulkanRenderer {
         }
 
         let mut commands = AutoCommandBufferBuilder::primary(
-            &self.command_buffer_allocator,
+            &*self.command_buffer_allocator,
             self.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )?;
@@ -492,7 +557,7 @@ impl VulkanRenderer {
                     .expect("Failed to load cube map");
                 VulkanCubeMap::new(
                     cube_map,
-                    &self.memory_allocator,
+                    self.memory_allocator.clone(),
                     self.device.active_queue_family_indices(),
                     &mut commands,
                 )
@@ -500,23 +565,26 @@ impl VulkanRenderer {
             })
         }
 
+        let framebuffer = self.frames[image_index as usize].framebuffer.clone();
+
         commands
             .begin_render_pass(
                 RenderPassBeginInfo {
                     clear_values,
-                    ..RenderPassBeginInfo::framebuffer(
-                        self.framebuffers[image_index as usize].clone(),
-                    )
+                    ..RenderPassBeginInfo::framebuffer(framebuffer)
                 },
-                SubpassContents::Inline,
+                SubpassBeginInfo {
+                    contents: SubpassContents::Inline,
+                    ..Default::default()
+                },
             )?
-            .set_viewport(0, [self.viewport.clone()]);
+            .set_viewport(0, [self.viewport.clone()].into_iter().collect());
 
         self.image_index = image_index;
         self.acquire_future = Some(acquire_future);
         self.commands = Some(commands);
 
-        if render_package.vertices.is_empty() {
+        if render_package.vertices.is_empty() && render_package.meshes.is_empty() {
             return Err(anyhow!(RenderException::NothingToRender));
         }
 
@@ -526,67 +594,59 @@ impl VulkanRenderer {
     fn deferred_render(&mut self, render_package: &RenderPackage) -> Result<()> {
         let commands = self.commands.as_mut().unwrap();
 
-        let vertex_buffer = Buffer::from_iter(
-            &self.memory_allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::VERTEX_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
-                ..Default::default()
-            },
+        {
+            let mut ubo_guard: BufferWriteGuard<'_, deferred_vert::UBO> = self.frames
+                [self.image_index as usize]
+                .deferred_ubo
+                .write()?;
+
+            let mut model: [[[f32; 4]; 4]; 100] = [[[0.0; 4]; 4]; 100];
+
+            for (i, mat) in render_package.model_matrices.into_iter().enumerate() {
+                model[i] = mat.into()
+            }
+
+            *ubo_guard = deferred_vert::UBO {
+                model,
+                view_projection: self.view_projection.into(),
+            };
+
+            drop(ubo_guard);
+        }
+
+        let vertex_buffer = create_vbo(
+            self.memory_allocator.clone(),
             render_package
                 .vertices
                 .iter()
-                .map(|i| VulkanColorNormalVertex::from(i.clone())),
+                .map(|v| VulkanColorNormalVertex::from(v)),
         )?;
-
-        let index_buffer = Buffer::from_iter(
-            &self.memory_allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::INDEX_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
-                ..Default::default()
-            },
+        let index_buffer = create_ibo(
+            self.memory_allocator.clone(),
             render_package.indices.clone(),
         )?;
 
-        let view_projection = {
-            let vp = deferred_vert::DeferredVertUniforms {
-                view_projection: self.view_projection.into(),
-            };
-            Buffer::from_data(
-                &self.memory_allocator,
-                BufferCreateInfo {
-                    usage: BufferUsage::UNIFORM_BUFFER,
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    usage: MemoryUsage::Upload,
-                    ..Default::default()
-                },
-                vp,
-            )?
-        };
-
-        let deferred_layout = self.deferred_pipeline.layout();
-        let set_layout = deferred_layout.set_layouts().get(0).unwrap();
-        let set = PersistentDescriptorSet::new(
-            &self.descriptor_set_allocator,
-            set_layout.clone(),
-            [WriteDescriptorSet::buffer(0, view_projection.clone())],
-        )?;
+        let layout = self.deferred_pipeline.layout();
+        let set = self.frames[self.image_index as usize].deferred_set.clone();
 
         commands
-            .bind_pipeline_graphics(self.deferred_pipeline.clone())
-            .bind_vertex_buffers(0, vertex_buffer)
-            .bind_index_buffer(index_buffer.clone())
-            .bind_descriptor_sets(PipelineBindPoint::Graphics, deferred_layout.clone(), 0, set)
-            .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)?;
+            .bind_pipeline_graphics(self.deferred_pipeline.clone())?
+            .bind_vertex_buffers(0, vertex_buffer)?
+            .bind_index_buffer(index_buffer)?
+            .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)?;
+
+        for submission in render_package.meshes.iter() {
+            let first_index = submission.index_range.start;
+            let last_index = submission.index_range.end;
+
+            let push_constants = deferred_vert::Constants {
+                model_offset: submission.model_matrix_offset,
+            };
+
+            commands
+                .push_constants(layout.clone(), 0, push_constants)?
+                .draw_indexed(last_index - first_index, 1, first_index, 0, 0)?;
+        }
 
         Ok(())
     }
@@ -603,17 +663,18 @@ impl VulkanRenderer {
                 WriteDescriptorSet::image_view(0, self.color_buffer.clone()),
                 WriteDescriptorSet::buffer(1, self.ambient_light.clone()),
             ],
+            [],
         )?;
 
         commands
-            .bind_pipeline_graphics(self.ambient_pipeline.clone())
-            .bind_vertex_buffers(0, self.fullscreen_quad.clone())
+            .bind_pipeline_graphics(self.ambient_pipeline.clone())?
+            .bind_vertex_buffers(0, self.fullscreen_quad.clone())?
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
                 ambient_layout.clone(),
                 0,
                 set.clone(),
-            )
+            )?
             .draw(self.fullscreen_quad.len() as u32, 1, 0, 0)?;
 
         Ok(())
@@ -638,18 +699,7 @@ impl VulkanRenderer {
                 position: light.position.into(),
             };
 
-            let buffer = Buffer::from_data(
-                &self.memory_allocator,
-                BufferCreateInfo {
-                    usage: BufferUsage::UNIFORM_BUFFER,
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    usage: MemoryUsage::Upload,
-                    ..Default::default()
-                },
-                light.clone(),
-            )?;
+            let buffer = create_ubo(self.memory_allocator.clone(), light.clone())?;
 
             let set = PersistentDescriptorSet::new(
                 &self.descriptor_set_allocator,
@@ -659,10 +709,11 @@ impl VulkanRenderer {
                     WriteDescriptorSet::image_view(1, self.normal_buffer.clone()),
                     WriteDescriptorSet::buffer(2, buffer),
                 ],
+                [],
             )?;
 
             commands
-                .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)
+                .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)?
                 .draw(self.fullscreen_quad.len() as u32, 1, 0, 0)?;
         }
 
@@ -691,18 +742,7 @@ impl VulkanRenderer {
                 projection: self.projection.into(),
             };
 
-            Buffer::from_data(
-                &self.memory_allocator,
-                BufferCreateInfo {
-                    usage: BufferUsage::UNIFORM_BUFFER,
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    usage: MemoryUsage::Upload,
-                    ..Default::default()
-                },
-                vp,
-            )?
+            create_ubo(self.memory_allocator.clone(), vp.clone())?
         };
 
         let layout = self.skybox_pipeline.layout();
@@ -715,12 +755,13 @@ impl VulkanRenderer {
                 WriteDescriptorSet::buffer(0, vp),
                 WriteDescriptorSet::image_view_sampler(1, texture.texture.clone(), sampler.clone()),
             ],
+            [],
         )?;
 
         commands
-            .bind_pipeline_graphics(self.skybox_pipeline.clone())
-            .bind_vertex_buffers(0, self.fullscreen_quad.clone())
-            .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)
+            .bind_pipeline_graphics(self.skybox_pipeline.clone())?
+            .bind_vertex_buffers(0, self.fullscreen_quad.clone())?
+            .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)?
             .draw(self.fullscreen_quad.len() as u32, 1, 0, 0)
             .map_err(|e| anyhow!("Failed to draw editor background: {e}"))?;
 
@@ -736,18 +777,7 @@ impl VulkanRenderer {
                 projection: self.projection.into(),
             };
 
-            Buffer::from_data(
-                &self.memory_allocator,
-                BufferCreateInfo {
-                    usage: BufferUsage::UNIFORM_BUFFER,
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    usage: MemoryUsage::Upload,
-                    ..Default::default()
-                },
-                vp,
-            )?
+            create_ubo(self.memory_allocator.clone(), vp)?
         };
 
         let layout = self.floor_pipeline.layout();
@@ -757,11 +787,12 @@ impl VulkanRenderer {
             &self.descriptor_set_allocator,
             set_layout.clone(),
             [WriteDescriptorSet::buffer(0, vp)],
+            [],
         )?;
 
         commands
-            .bind_pipeline_graphics(self.floor_pipeline.clone())
-            .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)
+            .bind_pipeline_graphics(self.floor_pipeline.clone())?
+            .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)?
             .draw(6, 1, 0, 0)
             .map_err(|e| anyhow!("Failed to draw floor: {e}"))?;
 
@@ -770,7 +801,7 @@ impl VulkanRenderer {
 
     fn finish_render(&mut self) -> Result<()> {
         let mut commands = self.commands.take().unwrap();
-        commands.end_render_pass()?;
+        commands.end_render_pass(SubpassEndInfo::default())?;
         let command_buffer = commands.build()?;
 
         let af = self.acquire_future.take().unwrap();
@@ -795,11 +826,15 @@ impl VulkanRenderer {
             Ok(future) => {
                 self.previous_frame_end = Some(Box::new(future) as Box<_>);
             }
-            Err(FlushError::OutOfDate) => {
-                self.recreate_swapchain()?;
-                self.previous_frame_end = Some(Box::new(vulkano::sync::now(self.device.clone())));
-                return Ok(());
-            }
+            Err(Validated::Error(e)) => match e {
+                VulkanError::OutOfDate => {
+                    self.recreate_swapchain()?;
+                    self.previous_frame_end =
+                        Some(Box::new(vulkano::sync::now(self.device.clone())));
+                    return Ok(());
+                }
+                _ => return Err(anyhow!("Failed to flush future: {}", e)),
+            },
             Err(e) => return Err(anyhow!("Failed to flush future: {}", e)),
         };
 
@@ -827,11 +862,14 @@ impl VulkanRenderer {
             &images,
             self.render_pass.clone(),
             &mut self.viewport,
-            &self.memory_allocator,
+            self.memory_allocator.clone(),
         )?;
 
+        for (i, framebuffer) in framebuffers.iter().enumerate() {
+            self.frames[i].framebuffer = framebuffer.clone();
+        }
+
         self.swapchain = swapchain;
-        self.framebuffers = framebuffers;
         self.color_buffer = color_buffer;
         self.normal_buffer = normal_buffer;
 

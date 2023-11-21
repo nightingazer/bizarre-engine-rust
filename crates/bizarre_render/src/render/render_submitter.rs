@@ -1,13 +1,17 @@
+use std::ops::Range;
+
 use nalgebra_glm::{Mat4, Vec3};
 
 use crate::{
-    render_components::Mesh,
+    render_components::{Mesh, Transform},
     render_math::{AmbientLight, DirectionalLight},
-    render_package::RenderPackage,
+    render_package::{MeshSubmission, RenderPackage},
     vertex::ColorNormalVertex,
 };
 
 pub struct RenderSubmitter {
+    meshes: Vec<MeshSubmission>,
+    model_matrices: Vec<Mat4>,
     vertex_buffer: Vec<ColorNormalVertex>,
     index_buffer: Vec<u32>,
     clear_color: [f32; 4],
@@ -27,6 +31,8 @@ impl Default for RenderSubmitter {
 impl RenderSubmitter {
     pub fn new() -> Self {
         Self {
+            meshes: Vec::new(),
+            model_matrices: Vec::new(),
             vertex_buffer: Vec::new(),
             index_buffer: Vec::new(),
             clear_color: [0.0, 0.0, 0.0, 1.0],
@@ -41,13 +47,27 @@ impl RenderSubmitter {
     pub fn submit_vertices(&mut self, mut vertices: Vec<ColorNormalVertex>) {
         self.vertex_buffer.append(&mut vertices);
         let indices: Vec<u32> = (0..vertices.len() as u32).collect();
-        self.insert_indices(indices.as_slice());
+        let range = self.insert_indices(indices.as_slice());
+        let mesh_submission = MeshSubmission {
+            index_range: range,
+            model_matrix_offset: 0,
+        };
+        self.meshes.push(mesh_submission);
     }
 
-    pub fn submit_meshes(&mut self, meshes: &[Mesh]) {
-        for mesh in meshes {
-            self.submit_vertices(mesh.vertices.clone());
-            self.insert_indices(&mesh.indices);
+    pub fn submit_meshes(&mut self, meshes: &[(&Mesh, &Transform)]) {
+        self.meshes.reserve(meshes.len());
+        for (mesh, transform) in meshes {
+            let model_matrix = Mat4::from(*transform);
+            self.vertex_buffer.append(&mut mesh.vertices.to_vec());
+            let range = self.insert_indices(&mesh.indices);
+            let model_matrix_offset = self.model_matrices.len() as u32;
+            self.model_matrices.push(model_matrix);
+
+            self.meshes.push(MeshSubmission {
+                index_range: range,
+                model_matrix_offset,
+            })
         }
     }
 
@@ -74,7 +94,18 @@ impl RenderSubmitter {
     }
 
     pub fn finalize_submission(&mut self) -> RenderPackage {
+        let mut model_matrices = [Mat4::default(); 100];
+        model_matrices[0] = Mat4::identity();
+
+        for (i, m) in self.model_matrices.iter().enumerate() {
+            if i < 99 {
+                model_matrices[i] = *m;
+            }
+        }
+
         let package = RenderPackage {
+            meshes: self.meshes.clone(),
+            model_matrices,
             vertices: self.vertex_buffer.clone(),
             indices: self.index_buffer.clone(),
             ambient_light: self.ambient_light.clone(),
@@ -85,6 +116,8 @@ impl RenderSubmitter {
             view_projection_was_updated: self.view_projection_was_updated,
         };
 
+        self.meshes.clear();
+        self.model_matrices.clear();
         self.vertex_buffer.clear();
         self.index_buffer.clear();
         self.directional_lights.clear();
@@ -93,13 +126,11 @@ impl RenderSubmitter {
         package
     }
 
-    fn insert_indices(&mut self, indices: &[u32]) {
-        if self.index_buffer.is_empty() {
-            self.index_buffer = indices.into();
-        } else {
-            let first_index = self.index_buffer.last().unwrap() + 1;
-            self.index_buffer
-                .append(&mut indices.iter().map(|i| i + first_index).collect());
-        }
+    fn insert_indices(&mut self, indices: &[u32]) -> Range<u32> {
+        let first_index = self.vertex_buffer.len() as u32;
+        let range_start = self.index_buffer.len() as u32;
+        self.index_buffer
+            .append(&mut indices.iter().map(|i| i + first_index).collect());
+        range_start..self.index_buffer.len() as u32
     }
 }

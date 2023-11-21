@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use nalgebra_glm::Mat4;
 
 use crate::{
@@ -5,7 +7,16 @@ use crate::{
     vertex::ColorNormalVertex,
 };
 
+#[derive(Clone, Debug)]
+pub struct MeshSubmission {
+    pub index_range: Range<u32>,
+    pub model_matrix_offset: u32,
+}
+
+#[derive(Clone, Debug)]
 pub struct RenderPackage {
+    pub meshes: Vec<MeshSubmission>,
+    pub model_matrices: [Mat4; 100],
     pub vertices: Vec<ColorNormalVertex>,
     pub indices: Vec<u32>,
     pub ambient_light: Option<AmbientLight>,

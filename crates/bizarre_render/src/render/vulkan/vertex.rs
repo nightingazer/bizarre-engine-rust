@@ -44,6 +44,16 @@ impl From<ColorNormalVertex> for VulkanColorNormalVertex {
     }
 }
 
+impl From<&ColorNormalVertex> for VulkanColorNormalVertex {
+    fn from(value: &ColorNormalVertex) -> Self {
+        Self {
+            position: value.position.into(),
+            color: value.color.into(),
+            normal: value.normal.into(),
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(BufferContents, vulkano::pipeline::graphics::vertex_input::Vertex, Clone)]
 pub struct VulkanPosition2DVertex {

@@ -32,11 +32,11 @@ impl Layer for SandboxLayer {
         //     .with(Mesh::from_obj("assets/models/cube.obj".to_string())?)
         //     .build();
 
-        let grid_half_szie = 12;
+        let grid_half_size = 3;
         let step = 3;
 
-        for x in (-grid_half_szie..=grid_half_szie).step_by(step) {
-            for z in (-grid_half_szie..=grid_half_szie).step_by(step) {
+        for x in (-grid_half_size..=grid_half_size).step_by(step) {
+            for z in (-grid_half_size..=grid_half_size).step_by(step) {
                 world
                     .create_entity()
                     .with(Transform {
@@ -56,26 +56,6 @@ impl Layer for SandboxLayer {
                     .build();
             }
         }
-
-        world
-            .create_entity()
-            .with(Transform {
-                position: [2.5, 1.0, 1.0].into(),
-                ..Default::default()
-            })
-            .with(Mesh::from_obj("assets/models/cube.obj".to_string())?)
-            .build();
-
-        world
-            .create_entity()
-            .with(Transform {
-                position: [2.5, 3.0, 1.0].into(),
-                ..Default::default()
-            })
-            .with(Mesh::from_obj(
-                "assets/models/smooth_monkey.obj".to_string(),
-            )?)
-            .build();
 
         world
             .create_entity()
