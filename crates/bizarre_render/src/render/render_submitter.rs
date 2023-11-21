@@ -59,8 +59,8 @@ impl RenderSubmitter {
         self.meshes.reserve(meshes.len());
         for (mesh, transform) in meshes {
             let model_matrix = Mat4::from(*transform);
-            self.vertex_buffer.append(&mut mesh.vertices.to_vec());
             let range = self.insert_indices(&mesh.indices);
+            self.vertex_buffer.append(&mut mesh.vertices.to_vec());
             let model_matrix_offset = self.model_matrices.len() as u32;
             self.model_matrices.push(model_matrix);
 
@@ -98,9 +98,7 @@ impl RenderSubmitter {
         model_matrices[0] = Mat4::identity();
 
         for (i, m) in self.model_matrices.iter().enumerate() {
-            if i < 99 {
-                model_matrices[i] = *m;
-            }
+            model_matrices[i] = *m;
         }
 
         let package = RenderPackage {

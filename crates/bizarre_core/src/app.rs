@@ -96,8 +96,6 @@ impl App {
             *running_time = RunningTime(running_time.0 + delta_time.0);
             *delta_time_res = delta_time;
 
-            core_debug!("Frame time: {:?}", frame_duration);
-
             if sleep_duration > Duration::from_millis(0) {
                 std::thread::sleep(sleep_duration);
             }
