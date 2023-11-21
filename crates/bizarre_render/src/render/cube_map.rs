@@ -2,6 +2,8 @@ use std::path::Path;
 
 use anyhow::Result;
 
+use crate::texture::Texture;
+
 pub struct CubeMap {
     pub side_width: u32,
     pub side_height: u32,
@@ -23,15 +25,18 @@ impl CubeMap {
 
         let mut dim = [0; 2];
 
-        let texture_data_vec = paths.iter().map(|p| {
-            let (image, d) = load_image(p);
-            dim = d;
-            image
-        });
+        let texture_data_vec = paths
+            .iter()
+            .map(|p| {
+                let texture = Texture::new(p)?;
+                dim = [texture.size.0, texture.size.1];
+                Ok(texture.bytes)
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let mut texture_data: [Vec<u8>; 6] = Default::default();
 
-        for (i, data) in texture_data_vec.enumerate() {
+        for (i, data) in texture_data_vec.iter().enumerate() {
             texture_data[i] = data.clone();
         }
 

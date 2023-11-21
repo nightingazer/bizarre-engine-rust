@@ -87,3 +87,21 @@ pub mod floor_frag {
         path: "assets/shaders/floor.frag"
     }
 }
+
+pub mod text_vert {
+    use vulkano_shaders::shader;
+
+    shader! {
+        ty: "vertex",
+        path: "assets/shaders/text.vert"
+    }
+}
+
+pub mod text_frag {
+    use vulkano_shaders::shader;
+
+    shader! {
+        ty: "fragment",
+        path: "assets/shaders/text.frag"
+    }
+}

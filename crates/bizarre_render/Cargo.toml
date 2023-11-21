@@ -18,3 +18,4 @@ bizarre_logger = { path = "../bizarre_logger" }
 vulkano = "0.34.1"
 vulkano-win = "0.34.0"
 vulkano-shaders = "0.34.0"
+bmfont = "0.3.3"

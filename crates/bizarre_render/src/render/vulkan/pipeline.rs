@@ -23,7 +23,7 @@ use vulkano::{
     shader::{EntryPoint, ShaderModule},
 };
 
-use super::vertex::VulkanPosition2DVertex;
+use super::vertex::{VulkanPosition2DVertex, VulkanVertex2D};
 
 fn make_stages_and_layout(
     device: Arc<Device>,
@@ -107,24 +107,6 @@ pub fn create_skybox_pipeline(
 ) -> Result<Arc<GraphicsPipeline>> {
     let (stages, entry_points, layout) =
         make_stages_and_layout(device.clone(), vertex_shader, fragment_shader)?;
-
-    // let pipeline = GraphicsPipeline::start()
-    //     .vertex_input_state(VulkanPosition2DVertex::per_vertex())
-    //     .vertex_shader(vertex_shader.entry_point("main").unwrap(), ())
-    //     .input_assembly_state(InputAssemblyState::new())
-    //     .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-    //     .fragment_shader(fragment_shader.entry_point("main").unwrap(), ())
-    //     .depth_stencil_state(DepthStencilState {
-    //         depth: Some(DepthState {
-    //             write_enable: StateMode::Fixed(true),
-    //             compare_op: StateMode::Fixed(CompareOp::LessOrEqual),
-    //             ..Default::default()
-    //         }),
-    //         ..Default::default()
-    //     })
-    //     .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
-    //     .render_pass(render_pass)
-    //     .build(device.clone())?;
 
     let vs_entry = &entry_points[0];
     let vertex_input_state =
@@ -247,5 +229,48 @@ pub fn create_deferred_pipeline<V: Vertex>(
     };
 
     let pipeline = GraphicsPipeline::new(device.clone(), None, create_info)?;
+    Ok(pipeline)
+}
+
+pub fn create_screen_text_pipeline(
+    vertex_shader: Arc<ShaderModule>,
+    fragment_shader: Arc<ShaderModule>,
+    render_pass: impl Into<PipelineSubpassType>,
+    device: Arc<Device>,
+) -> Result<Arc<GraphicsPipeline>> {
+    let (stages, entry_points, layout) =
+        make_stages_and_layout(device.clone(), vertex_shader, fragment_shader)?;
+
+    let vs_entry = &entry_points[0];
+    let vertex_input_state =
+        Some(VulkanVertex2D::per_vertex().definition(&vs_entry.info().input_interface)?);
+
+    let pipeline = GraphicsPipeline::new(
+        device.clone(),
+        None,
+        GraphicsPipelineCreateInfo {
+            stages: stages.into_iter().collect(),
+            vertex_input_state,
+            input_assembly_state: Some(InputAssemblyState::default()),
+            viewport_state: Some(ViewportState::default()),
+            rasterization_state: Some(RasterizationState {
+                cull_mode: CullMode::None,
+                ..Default::default()
+            }),
+            depth_stencil_state: None,
+            multisample_state: Some(MultisampleState::default()),
+            color_blend_state: Some(ColorBlendState::with_attachment_states(
+                1,
+                ColorBlendAttachmentState {
+                    blend: Some(AttachmentBlend::alpha()),
+                    ..Default::default()
+                },
+            )),
+            dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+            subpass: Some(render_pass.into().clone()),
+            ..GraphicsPipelineCreateInfo::layout(layout)
+        },
+    )?;
+
     Ok(pipeline)
 }

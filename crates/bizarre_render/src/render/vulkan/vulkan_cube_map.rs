@@ -53,9 +53,9 @@ impl VulkanCubeMap {
                 array_layers: 6,
                 extent: [cube_map.side_width, cube_map.side_height, 1],
                 image_type: ImageType::Dim2d,
+                flags: ImageCreateFlags::CUBE_COMPATIBLE,
                 format,
                 usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
-                flags: ImageCreateFlags::CUBE_COMPATIBLE,
                 ..Default::default()
             },
             AllocationCreateInfo {
@@ -78,14 +78,15 @@ impl VulkanCubeMap {
             data.clone(),
         )?;
 
-        cmd_buffer.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(buffer, image.clone()));
+        cmd_buffer
+            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(buffer, image.clone()))?;
 
         let view = ImageView::new(
             image.clone(),
             ImageViewCreateInfo {
                 view_type: ImageViewType::Cube,
                 subresource_range: ImageSubresourceRange::from_parameters(format, 1, 6),
-                format: format,
+                format,
                 usage: ImageUsage::SAMPLED,
                 ..Default::default()
             },

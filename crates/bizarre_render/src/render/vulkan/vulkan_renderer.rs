@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Result};
 use bizarre_logger::{core_debug, core_error, core_info, core_warn};
-use nalgebra_glm::{look_at, perspective, vec3, Mat4};
+use nalgebra_glm::{look_at, perspective, vec2, vec3, Mat4};
 use vulkano::{
     buffer::{subbuffer::BufferWriteGuard, Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
@@ -42,7 +42,8 @@ use vulkano::{
 use vulkano_win::create_surface_from_winit;
 
 use crate::{
-    cube_map::CubeMap, render_math::AmbientLight, render_package::RenderPackage, renderer::Renderer,
+    bitmap_font::BitmapFont, cube_map::CubeMap, render_math::AmbientLight,
+    render_package::RenderPackage, renderer::Renderer, text::ScreenText,
 };
 
 use super::{
@@ -50,16 +51,17 @@ use super::{
     framebuffer::window_size_dependent_setup,
     pipeline::{
         create_deferred_pipeline, create_editor_grid_graphics_pipeline, create_lighting_pipeline,
-        create_skybox_pipeline,
+        create_screen_text_pipeline, create_skybox_pipeline,
     },
     render_pass::create_render_pass,
     shaders::{
         ambient_frag, ambient_vert, deferred_frag, deferred_vert, directional_frag,
-        directional_vert, floor_frag, floor_vert, skybox_frag, skybox_vert,
+        directional_vert, floor_frag, floor_vert, skybox_frag, skybox_vert, text_frag, text_vert,
     },
-    vertex::{VulkanColorNormalVertex, VulkanPosition2DVertex},
+    vertex::{VulkanColorNormalVertex, VulkanPosition2DVertex, VulkanVertex2D},
     vulkan_buffer::{create_ibo, create_ubo, create_vbo},
     vulkan_cube_map::VulkanCubeMap,
+    vulkan_image::create_texture,
 };
 
 fn debug_messenger_callback(
@@ -104,6 +106,11 @@ pub struct VulkanRenderer {
     directional_pipeline: Arc<GraphicsPipeline>,
     skybox_pipeline: Arc<GraphicsPipeline>,
     floor_pipeline: Arc<GraphicsPipeline>,
+    text_pipeline: Arc<GraphicsPipeline>,
+    text_vbo: Subbuffer<[VulkanVertex2D]>,
+    text_ibo: Subbuffer<[u32]>,
+    text_obj: ScreenText,
+    text_texture: Option<Arc<ImageView>>,
 
     color_buffer: Arc<ImageView>,
     normal_buffer: Arc<ImageView>,
@@ -341,6 +348,28 @@ impl Renderer for VulkanRenderer {
             )?
         };
 
+        let text_pipeline = {
+            let vert = text_vert::load(device.clone())?;
+            let frag = text_frag::load(device.clone())?;
+
+            let pass = Subpass::from(render_pass.clone(), 3)
+                .ok_or(anyhow!("Failed to create text pass from render pass"))?;
+
+            create_screen_text_pipeline(vert, frag, pass, device.clone())?
+        };
+
+        let text_obj = {
+            let font = BitmapFont::new("assets/fonts/fira_sdf.fnt", "assets/fonts/fira_sdf.png")?;
+
+            ScreenText {
+                color: vec3(5.0, 4.0, 0.0),
+                font,
+                font_size: 100.0,
+                position: vec2(0.0, 0.0),
+                text: "Hello Vulkan!".into(),
+            }
+        };
+
         let mut viewport = Viewport {
             extent: [0.0, 0.0],
             offset: [0.0, 0.0],
@@ -353,6 +382,17 @@ impl Renderer for VulkanRenderer {
             &mut viewport,
             memory_allocator.clone(),
         )?;
+
+        let screen_size = [viewport.extent[0] as u32, viewport.extent[1] as u32];
+        let text_vbo = {
+            let vbo = text_obj.vertex_buffer([800, 600]);
+            create_vbo(
+                memory_allocator.clone(),
+                vbo.iter().cloned().map(|v| VulkanVertex2D::from(v)),
+            )?
+        };
+
+        let text_ibo = create_ibo(memory_allocator.clone(), text_obj.index_buffer())?;
 
         let fullscreen_quad = VulkanPosition2DVertex::list();
 
@@ -415,6 +455,12 @@ impl Renderer for VulkanRenderer {
             directional_pipeline,
             skybox_pipeline,
             floor_pipeline,
+
+            text_pipeline,
+            text_vbo,
+            text_ibo,
+            text_obj,
+            text_texture: None,
 
             color_buffer,
             normal_buffer,
@@ -480,6 +526,16 @@ impl Renderer for VulkanRenderer {
 
         self.render_skybox()?;
         self.floor_render()?;
+
+        self.commands.as_mut().unwrap().next_subpass(
+            SubpassEndInfo::default(),
+            SubpassBeginInfo {
+                contents: SubpassContents::Inline,
+                ..Default::default()
+            },
+        )?;
+
+        self.render_text()?;
 
         self.finish_render()?;
 
@@ -564,6 +620,13 @@ impl VulkanRenderer {
                 .expect("Failed to convert cube map to vulkan format")
             })
         }
+
+        if self.text_texture.is_none() {
+            self.text_texture = Some({
+                let texture = &self.text_obj.font.bitmap;
+                create_texture(texture, self.memory_allocator.clone(), &mut commands)?
+            })
+        };
 
         let framebuffer = self.frames[image_index as usize].framebuffer.clone();
 
@@ -728,7 +791,7 @@ impl VulkanRenderer {
             SamplerCreateInfo {
                 mag_filter: Filter::Linear,
                 min_filter: Filter::Linear,
-                mipmap_mode: SamplerMipmapMode::Linear,
+                mipmap_mode: SamplerMipmapMode::Nearest,
                 address_mode: [SamplerAddressMode::ClampToEdge; 3],
                 ..Default::default()
             },
@@ -795,6 +858,43 @@ impl VulkanRenderer {
             .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)?
             .draw(6, 1, 0, 0)
             .map_err(|e| anyhow!("Failed to draw floor: {e}"))?;
+
+        Ok(())
+    }
+
+    fn render_text(&mut self) -> Result<()> {
+        let mut cmd = self.commands.as_mut().unwrap();
+
+        let sampler = Sampler::new(
+            self.device.clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                mipmap_mode: SamplerMipmapMode::Linear,
+                address_mode: [SamplerAddressMode::ClampToEdge; 3],
+                ..Default::default()
+            },
+        )?;
+
+        let layout = self.text_pipeline.layout().clone();
+        let set_layout = layout.set_layouts().first().unwrap();
+
+        let set = PersistentDescriptorSet::new(
+            &self.descriptor_set_allocator,
+            set_layout.clone(),
+            [WriteDescriptorSet::image_view_sampler(
+                0,
+                self.text_texture.as_ref().unwrap().clone(),
+                sampler,
+            )],
+            [],
+        )?;
+
+        cmd.bind_pipeline_graphics(self.text_pipeline.clone())?
+            .bind_vertex_buffers(0, self.text_vbo.clone())?
+            .bind_index_buffer(self.text_ibo.clone())?
+            .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)?
+            .draw_indexed(self.text_ibo.len() as u32, 1, 0, 0, 0)?;
 
         Ok(())
     }

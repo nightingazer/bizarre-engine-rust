@@ -1,6 +1,6 @@
 use vulkano::buffer::BufferContents;
 
-use crate::vertex::{ColorNormalVertex, PositionVertex, Vertex};
+use crate::vertex::{ColorNormalVertex, PositionVertex, Vertex, Vertex2D};
 
 #[repr(C)]
 #[derive(BufferContents, vulkano::pipeline::graphics::vertex_input::Vertex)]
@@ -19,6 +19,27 @@ impl From<Vertex> for VulkanVertex {
             position: value.position.into(),
             normal: value.normal.into(),
             uv: value.uv.into(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(BufferContents, vulkano::pipeline::graphics::vertex_input::Vertex)]
+pub struct VulkanVertex2D {
+    #[format(R32G32_SFLOAT)]
+    position: [f32; 2],
+    #[format(R32G32_SFLOAT)]
+    uv: [f32; 2],
+    #[format(R32G32B32_SFLOAT)]
+    color: [f32; 3],
+}
+
+impl From<Vertex2D> for VulkanVertex2D {
+    fn from(value: Vertex2D) -> Self {
+        Self {
+            position: value.position.into(),
+            uv: value.uv.into(),
+            color: value.color.into(),
         }
     }
 }
