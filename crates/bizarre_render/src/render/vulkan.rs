@@ -8,5 +8,6 @@ mod vulkan_buffer;
 mod vulkan_cube_map;
 mod vulkan_image;
 mod vulkan_renderer;
+mod vulkan_text;
 
 pub use vulkan_renderer::VulkanRenderer;

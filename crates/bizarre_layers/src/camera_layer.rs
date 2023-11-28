@@ -27,7 +27,7 @@ impl<'a> System<'a> for CameraSystem {
     fn run(&mut self, data: Self::SystemData) {
         let (mut submitter, input, delta_time, mut cameras) = data;
 
-        let delta_time = delta_time.0;
+        let delta_time = delta_time.0.as_secs_f32();
         const BASE_CAMERA_SPEED: f32 = 5.0;
 
         for camera in (&mut cameras).join() {

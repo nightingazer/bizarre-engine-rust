@@ -20,6 +20,9 @@ pub struct RenderSubmitter {
     view: Mat4,
     projection: Mat4,
     view_projection_was_updated: bool,
+
+    frame_index: usize,
+    frame_times_ms: [Option<f64>; 100],
 }
 
 impl Default for RenderSubmitter {
@@ -41,6 +44,8 @@ impl RenderSubmitter {
             view: Mat4::identity(),
             projection: Mat4::identity(),
             view_projection_was_updated: false,
+            frame_index: 0,
+            frame_times_ms: [None; 100],
         }
     }
 
@@ -93,6 +98,10 @@ impl RenderSubmitter {
         self.view_projection_was_updated = true;
     }
 
+    pub fn submit_frame_time(&mut self, frame_time_ms: f64) {
+        self.frame_times_ms[self.frame_index] = Some(frame_time_ms);
+    }
+
     pub fn finalize_submission(&mut self) -> RenderPackage {
         let mut model_matrices = [Mat4::default(); 100];
         model_matrices[0] = Mat4::identity();
@@ -100,6 +109,15 @@ impl RenderSubmitter {
         for (i, m) in self.model_matrices.iter().enumerate() {
             model_matrices[i] = *m;
         }
+
+        let avg_frame_time = self
+            .frame_times_ms
+            .iter()
+            .filter_map(|t| *t)
+            .reduce(|a, b| (a + b) / 2.0)
+            .unwrap_or(0.0);
+
+        let last_frame_time = self.frame_times_ms[self.frame_index].unwrap_or(0.0);
 
         let package = RenderPackage {
             meshes: self.meshes.clone(),
@@ -112,6 +130,8 @@ impl RenderSubmitter {
             view: self.view,
             projection: self.projection,
             view_projection_was_updated: self.view_projection_was_updated,
+            avg_frame_time_ms: avg_frame_time,
+            last_frame_time_ms: last_frame_time,
         };
 
         self.meshes.clear();
@@ -120,6 +140,7 @@ impl RenderSubmitter {
         self.index_buffer.clear();
         self.directional_lights.clear();
         self.ambient_light = None;
+        self.frame_index = (self.frame_index + 1) % self.frame_times_ms.len();
 
         package
     }

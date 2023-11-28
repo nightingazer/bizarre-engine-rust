@@ -1,5 +1,7 @@
-#[derive(Default)]
-pub struct DeltaTime(pub f32);
+use std::time::Duration;
 
-#[derive(Default)]
-pub struct RunningTime(pub f32);
+#[derive(Default, Clone)]
+pub struct DeltaTime(pub Duration);
+
+#[derive(Default, Clone)]
+pub struct RunningTime(pub Duration);

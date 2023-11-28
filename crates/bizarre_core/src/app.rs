@@ -10,6 +10,7 @@ use specs::WorldExt;
 
 use crate::{
     app_events::AppCloseRequestedEvent,
+    debug_stats::DebugStats,
     layer::Layer,
     timing::{DeltaTime, RunningTime},
 };
@@ -68,8 +69,9 @@ impl App {
             }
         }
 
-        self.world.insert(DeltaTime(0.0));
-        self.world.insert(RunningTime(0.0));
+        self.world.insert(DeltaTime(Duration::from_secs(0)));
+        self.world.insert(RunningTime(Duration::from_secs(0)));
+        self.world.insert(DebugStats::default());
 
         while self.observer.running {
             let frame_start = Instant::now();
@@ -92,9 +94,14 @@ impl App {
 
             let frame_duration = Instant::now() - frame_start;
             let sleep_duration = Duration::from_millis(16).saturating_sub(frame_duration);
-            let delta_time = DeltaTime(frame_duration.as_secs_f32() + sleep_duration.as_secs_f32());
+            let delta_time = DeltaTime(frame_duration + sleep_duration);
             *running_time = RunningTime(running_time.0 + delta_time.0);
-            *delta_time_res = delta_time;
+            *delta_time_res = delta_time.clone();
+            let mut debug_stats = self.world.write_resource::<DebugStats>();
+
+            debug_stats.last_frame_work_time_ms = frame_duration.as_secs_f64() * 1000.0;
+            debug_stats.last_frame_idle_time_ms = sleep_duration.as_secs_f64() * 1000.0;
+            debug_stats.last_frame_total_time_ms = delta_time.0.as_secs_f64() * 1000.0;
 
             if sleep_duration > Duration::from_millis(0) {
                 std::thread::sleep(sleep_duration);

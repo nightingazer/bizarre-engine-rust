@@ -34,8 +34,8 @@ pub struct VulkanVertex2D {
     color: [f32; 3],
 }
 
-impl From<Vertex2D> for VulkanVertex2D {
-    fn from(value: Vertex2D) -> Self {
+impl From<&Vertex2D> for VulkanVertex2D {
+    fn from(value: &Vertex2D) -> Self {
         Self {
             position: value.position.into(),
             uv: value.uv.into(),

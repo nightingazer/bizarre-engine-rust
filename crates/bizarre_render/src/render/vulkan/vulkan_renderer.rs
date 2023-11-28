@@ -37,13 +37,17 @@ use vulkano::{
         self, Surface, Swapchain, SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
     },
     sync::GpuFuture,
-    Validated, VulkanError, VulkanLibrary,
+    DeviceSize, Validated, VulkanError, VulkanLibrary,
 };
 use vulkano_win::create_surface_from_winit;
 
 use crate::{
-    bitmap_font::BitmapFont, cube_map::CubeMap, render_math::AmbientLight,
-    render_package::RenderPackage, renderer::Renderer, text::ScreenText,
+    bitmap_font::BitmapFont,
+    cube_map::CubeMap,
+    render_math::AmbientLight,
+    render_package::RenderPackage,
+    renderer::Renderer,
+    text::{ScreenText, TextAlignment},
 };
 
 use super::{
@@ -62,6 +66,7 @@ use super::{
     vulkan_buffer::{create_ibo, create_ubo, create_vbo},
     vulkan_cube_map::VulkanCubeMap,
     vulkan_image::create_texture,
+    vulkan_text::VulkanScreenTextObject,
 };
 
 fn debug_messenger_callback(
@@ -107,10 +112,9 @@ pub struct VulkanRenderer {
     skybox_pipeline: Arc<GraphicsPipeline>,
     floor_pipeline: Arc<GraphicsPipeline>,
     text_pipeline: Arc<GraphicsPipeline>,
-    text_vbo: Subbuffer<[VulkanVertex2D]>,
-    text_ibo: Subbuffer<[u32]>,
-    text_obj: ScreenText,
+    render_time_text: ScreenText,
     text_texture: Option<Arc<ImageView>>,
+    text_sampler: Arc<Sampler>,
 
     color_buffer: Arc<ImageView>,
     normal_buffer: Arc<ImageView>,
@@ -358,15 +362,16 @@ impl Renderer for VulkanRenderer {
             create_screen_text_pipeline(vert, frag, pass, device.clone())?
         };
 
-        let text_obj = {
+        let render_time_text = {
             let font = BitmapFont::new("assets/fonts/fira_sdf.fnt", "assets/fonts/fira_sdf.png")?;
 
             ScreenText {
                 color: vec3(5.0, 4.0, 0.0),
                 font,
-                font_size: 100.0,
-                position: vec2(0.0, 0.0),
+                font_size: 30.0,
+                position: vec2(5.0, 30.0),
                 text: "Hello Vulkan!".into(),
+                alignment: TextAlignment::Left,
             }
         };
 
@@ -384,15 +389,6 @@ impl Renderer for VulkanRenderer {
         )?;
 
         let screen_size = [viewport.extent[0] as u32, viewport.extent[1] as u32];
-        let text_vbo = {
-            let vbo = text_obj.vertex_buffer([800, 600]);
-            create_vbo(
-                memory_allocator.clone(),
-                vbo.iter().cloned().map(|v| VulkanVertex2D::from(v)),
-            )?
-        };
-
-        let text_ibo = create_ibo(memory_allocator.clone(), text_obj.index_buffer())?;
 
         let fullscreen_quad = VulkanPosition2DVertex::list();
 
@@ -429,11 +425,24 @@ impl Renderer for VulkanRenderer {
                     deferred_ubo,
                     frame_index: i as u32,
                     framebuffer: framebuffer.clone(),
+                    rt_text_obj: None,
+                    rt_text_set: None,
                 };
 
                 Ok(frame)
             })
             .collect::<Result<Vec<_>>>()?;
+
+        let text_sampler = Sampler::new(
+            device.clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Nearest,
+                mipmap_mode: SamplerMipmapMode::Nearest,
+                address_mode: [SamplerAddressMode::ClampToEdge; 3],
+                ..Default::default()
+            },
+        )?;
 
         Ok(Self {
             instance,
@@ -457,10 +466,9 @@ impl Renderer for VulkanRenderer {
             floor_pipeline,
 
             text_pipeline,
-            text_vbo,
-            text_ibo,
-            text_obj,
+            render_time_text,
             text_texture: None,
+            text_sampler,
 
             color_buffer,
             normal_buffer,
@@ -535,7 +543,7 @@ impl Renderer for VulkanRenderer {
             },
         )?;
 
-        self.render_text()?;
+        self.render_text(&render_package)?;
 
         self.finish_render()?;
 
@@ -623,10 +631,34 @@ impl VulkanRenderer {
 
         if self.text_texture.is_none() {
             self.text_texture = Some({
-                let texture = &self.text_obj.font.bitmap;
+                let texture = &self.render_time_text.font.bitmap;
                 create_texture(texture, self.memory_allocator.clone(), &mut commands)?
             })
         };
+
+        if self.frames[image_index as usize].rt_text_obj.is_none() {
+            let frame = &self.frames[image_index as usize];
+            let text_obj = VulkanScreenTextObject::with_capacity(
+                256,
+                self.text_texture.as_ref().unwrap().clone(),
+                self.memory_allocator.clone(),
+            )?;
+
+            let set_layout = self.text_pipeline.layout().set_layouts().get(0).unwrap();
+            let set = PersistentDescriptorSet::new(
+                &*self.descriptor_set_allocator,
+                set_layout.clone(),
+                [WriteDescriptorSet::image_view_sampler(
+                    0,
+                    self.text_texture.as_ref().unwrap().clone(),
+                    self.text_sampler.clone(),
+                )],
+                [],
+            )?;
+
+            self.frames[image_index as usize].rt_text_obj = Some(text_obj);
+            self.frames[image_index as usize].rt_text_set = Some(set);
+        }
 
         let framebuffer = self.frames[image_index as usize].framebuffer.clone();
 
@@ -862,39 +894,39 @@ impl VulkanRenderer {
         Ok(())
     }
 
-    fn render_text(&mut self) -> Result<()> {
+    fn render_text(&mut self, render_package: &RenderPackage) -> Result<()> {
+        let frame = &mut self.frames[self.image_index as usize];
+        self.render_time_text.text = format!(
+            "AVG RT: {:.2}ms, Last RT: {:.2}ms, FPS: {:.2}",
+            render_package.avg_frame_time_ms,
+            render_package.last_frame_time_ms,
+            1000.0 / render_package.avg_frame_time_ms
+        );
+        let vbo = self
+            .render_time_text
+            .vertex_buffer(frame.framebuffer.extent())
+            .iter()
+            .map(VulkanVertex2D::from)
+            .collect::<Vec<_>>();
+
+        let ibo = self.render_time_text.index_buffer();
+
+        let rt_text_obj = frame.rt_text_obj.as_mut().unwrap();
+
+        rt_text_obj.update_buffers(&vbo, &ibo)?;
+
         let mut cmd = self.commands.as_mut().unwrap();
 
-        let sampler = Sampler::new(
-            self.device.clone(),
-            SamplerCreateInfo {
-                mag_filter: Filter::Linear,
-                min_filter: Filter::Linear,
-                mipmap_mode: SamplerMipmapMode::Linear,
-                address_mode: [SamplerAddressMode::ClampToEdge; 3],
-                ..Default::default()
-            },
-        )?;
-
-        let layout = self.text_pipeline.layout().clone();
-        let set_layout = layout.set_layouts().first().unwrap();
-
-        let set = PersistentDescriptorSet::new(
-            &self.descriptor_set_allocator,
-            set_layout.clone(),
-            [WriteDescriptorSet::image_view_sampler(
-                0,
-                self.text_texture.as_ref().unwrap().clone(),
-                sampler,
-            )],
-            [],
-        )?;
-
         cmd.bind_pipeline_graphics(self.text_pipeline.clone())?
-            .bind_vertex_buffers(0, self.text_vbo.clone())?
-            .bind_index_buffer(self.text_ibo.clone())?
-            .bind_descriptor_sets(PipelineBindPoint::Graphics, layout.clone(), 0, set)?
-            .draw_indexed(self.text_ibo.len() as u32, 1, 0, 0, 0)?;
+            .bind_vertex_buffers(0, rt_text_obj.vertex_buffer.clone())?
+            .bind_index_buffer(rt_text_obj.index_buffer.clone())?
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.text_pipeline.layout().clone(),
+                0,
+                frame.rt_text_set.as_ref().unwrap().clone(),
+            )?
+            .draw_indexed(ibo.len() as u32, 1, 0, 0, 0)?;
 
         Ok(())
     }

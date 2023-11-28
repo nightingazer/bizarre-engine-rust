@@ -9,7 +9,9 @@ use vulkano::{
         view::{ImageView, ImageViewCreateInfo, ImageViewType},
         Image, ImageCreateInfo, ImageSubresourceRange, ImageUsage,
     },
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    memory::allocator::{
+        AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter, StandardMemoryAllocator,
+    },
 };
 
 use crate::texture::Texture;
@@ -84,7 +86,7 @@ pub fn create_depth_attachment(
 
 pub fn create_texture(
     texture: &Texture,
-    allocator: Arc<StandardMemoryAllocator>,
+    allocator: Arc<dyn MemoryAllocator>,
     cmd_buffer: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
 ) -> Result<Arc<ImageView>> {
     let format = Format::R8G8B8A8_SRGB;

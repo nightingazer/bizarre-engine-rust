@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bizarre_core::core_events::WindowResized;
+use bizarre_core::debug_stats::DebugStats;
 use bizarre_core::input::InputHandler;
 use bizarre_core::input::MouseButton;
 use bizarre_core::{
@@ -77,10 +78,13 @@ impl<'a> System<'a> for MeshSystem {
         Write<'a, RenderSubmitter>,
         ReadStorage<'a, Mesh>,
         ReadStorage<'a, Transform>,
+        Read<'a, DebugStats>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
-        let (mut submitter, meshes, transforms) = data;
+        let (mut submitter, meshes, transforms, stats) = data;
+
+        submitter.submit_frame_time(stats.last_frame_work_time_ms);
 
         let mut submissions: Vec<(&Mesh, &Transform)> = Vec::with_capacity(meshes.count());
 

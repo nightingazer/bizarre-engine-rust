@@ -25,4 +25,7 @@ pub struct RenderPackage {
     pub view: Mat4,
     pub projection: Mat4,
     pub view_projection_was_updated: bool,
+
+    pub avg_frame_time_ms: f64,
+    pub last_frame_time_ms: f64,
 }
