@@ -1,5 +1,7 @@
 use std::sync::Arc;
+use std::time::Duration;
 
+use anyhow::bail;
 use anyhow::Result;
 use bizarre_core::core_events::WindowResized;
 use bizarre_core::debug_stats::DebugStats;
@@ -8,36 +10,36 @@ use bizarre_core::input::MouseButton;
 use bizarre_core::{
     app_events::AppCloseRequestedEvent,
     layer::Layer,
-    specs::{self, Builder, Read, ReadStorage, RunNow, System, WorldExt, Write},
-    timing::DeltaTime,
+    specs::{self, Read, ReadStorage, RunNow, System, WorldExt, Write},
 };
+use bizarre_events::observer::EventBus;
+use bizarre_events::observer::Observer;
 use bizarre_render::render_components::transform::Transform;
 use bizarre_render::render_components::Mesh;
-use bizarre_render::{
-    render_math::DirectionalLight,
-    render_submitter::RenderSubmitter,
-    renderer::{create_renderer, Renderer, RendererBackend},
-};
+use bizarre_render::RenderSystem;
+use bizarre_render::{render_math::DirectionalLight, render_submitter::RenderSubmitter};
 use specs::Join;
-use winit::{event_loop::ControlFlow, platform::run_return::EventLoopExtRunReturn};
+use winit::platform::pump_events::EventLoopExtPumpEvents;
+use winit::platform::pump_events::PumpStatus;
+use winit::platform::scancode::PhysicalKeyExtScancode;
 
 pub struct VisualLayer {
     event_loop: winit::event_loop::EventLoop<()>,
     _window: Arc<winit::window::Window>,
-    renderer: Box<dyn Renderer>,
+    renderer: RenderSystem,
 }
 
 impl VisualLayer {
     pub fn new() -> Result<Self> {
-        let event_loop = winit::event_loop::EventLoop::new();
-        let window = winit::window::WindowBuilder::new()
+        let event_loop = winit::event_loop::EventLoop::new()?;
+        let window: winit::window::Window = winit::window::WindowBuilder::new()
             .with_title("Bizarre Engine")
             .build(&event_loop)
             .unwrap();
 
         let window = Arc::new(window);
 
-        let renderer = create_renderer(window.clone(), RendererBackend::Vulkan);
+        let renderer = RenderSystem::new(window.clone());
         let renderer = match renderer {
             Ok(r) => r,
             Err(e) => {
@@ -96,12 +98,102 @@ impl<'a> System<'a> for MeshSystem {
     }
 }
 
+impl Observer for VisualLayer {
+    fn initialize(event_bus: &EventBus, system: bizarre_events::observer::SyncObserver<Self>) {
+        event_bus.subscribe(system, Self::handle_window_resize);
+    }
+}
+
+impl VisualLayer {
+    fn handle_window_resize(&mut self, event: &WindowResized) {
+        self.renderer
+            .resize([event.width as u32, event.height as u32])
+            .expect("Failed to resize renderer");
+    }
+
+    fn handle_event<E>(
+        event: winit::event::Event<E>,
+        _elwt: &winit::event_loop::EventLoopWindowTarget<E>,
+        input_handler: &mut InputHandler,
+        event_bus: &EventBus,
+        loop_result: &mut anyhow::Result<()>,
+    ) where
+        E: 'static,
+    {
+        use winit::event as w_event;
+
+        if let w_event::Event::WindowEvent { event, .. } = event {
+            match event {
+                w_event::WindowEvent::CloseRequested => {
+                    event_bus.push_event(AppCloseRequestedEvent);
+                }
+                w_event::WindowEvent::Resized(size) => {
+                    let size = [size.width, size.height];
+                    event_bus.push_event(WindowResized {
+                        width: size[0] as f32,
+                        height: size[1] as f32,
+                    });
+                }
+                w_event::WindowEvent::KeyboardInput { event: input, .. } => {
+                    let keycode = match input.physical_key {
+                        winit::keyboard::PhysicalKey::Code(code) => {
+                            code.to_scancode().unwrap() as u16
+                        }
+                        winit::keyboard::PhysicalKey::Unidentified(code) => match code {
+                            winit::keyboard::NativeKeyCode::Xkb(code) => code as u16,
+                            _ => u16::MAX,
+                        },
+                    };
+                    let pressed = match input.state {
+                        w_event::ElementState::Pressed => true,
+                        w_event::ElementState::Released => false,
+                    };
+                    *loop_result = input_handler.process_keyboard(keycode, pressed, event_bus);
+                }
+                w_event::WindowEvent::CursorMoved { position, .. } => {
+                    *loop_result = input_handler
+                        .process_mouse_move([position.x as f32, position.y as f32], event_bus);
+                }
+                w_event::WindowEvent::MouseInput { state, button, .. } => {
+                    let pressed = match state {
+                        w_event::ElementState::Pressed => true,
+                        w_event::ElementState::Released => false,
+                    };
+                    let button = match button {
+                        w_event::MouseButton::Left => MouseButton::Left,
+                        w_event::MouseButton::Right => MouseButton::Right,
+                        w_event::MouseButton::Middle => MouseButton::Middle,
+                        w_event::MouseButton::Other(id) => {
+                            let id: u8 = id.try_into().unwrap_or(u8::MAX);
+                            MouseButton::Other(id)
+                        }
+                        _ => MouseButton::Other(u8::MAX),
+                    };
+                    *loop_result = input_handler.process_mouse_button(button, pressed, event_bus);
+                }
+                w_event::WindowEvent::MouseWheel { delta, .. } => {
+                    let delta = match delta {
+                        w_event::MouseScrollDelta::LineDelta(x, y) => [x, y],
+                        w_event::MouseScrollDelta::PixelDelta(position) => {
+                            [position.x as f32, position.y as f32]
+                        }
+                    };
+                    *loop_result = input_handler.process_mouse_scroll(delta);
+                }
+                _ => (),
+            }
+        }
+    }
+}
+
 impl Layer for VisualLayer {
     fn on_attach(
         &mut self,
         event_bus: &bizarre_events::observer::EventBus,
         world: &mut bizarre_core::specs::World,
     ) -> Result<()> {
+        event_bus.add_system(self);
+
         let mut submitter = RenderSubmitter::new();
         submitter.set_clear_color([0.0, 0.0, 0.0, 1.0]);
         submitter.submit_ambient_light(bizarre_render::render_math::AmbientLight {
@@ -138,84 +230,28 @@ impl Layer for VisualLayer {
 
         let mut input_handler = world.write_resource::<InputHandler>();
 
-        let mut update_result: Result<()> = Ok(());
+        let timeout = Some(Duration::ZERO);
+        let mut result = Ok(());
+        let status = self.event_loop.pump_events(timeout, |event, ewlt| {
+            Self::handle_event(event, ewlt, &mut input_handler, event_bus, &mut result)
+        });
 
-        let mut check_result_and_throw = |r: Result<()>, c: &mut ControlFlow| {
-            if let Err(e) = r {
-                update_result = Err(e);
-                *c = ControlFlow::Exit;
-            }
-        };
+        if let Err(e) = result {
+            bail!("Failed to handle event: {e}");
+        }
 
-        self.event_loop
-            .run_return(|event, _, control_flow| match event {
-                winit::event::Event::MainEventsCleared => {
-                    *control_flow = winit::event_loop::ControlFlow::Exit;
-                    let mut submitter = world.write_resource::<RenderSubmitter>();
-                    let render_package = submitter.finalize_submission();
-                    let result = self.renderer.render(render_package);
-                    check_result_and_throw(result, control_flow);
-                }
-                winit::event::Event::WindowEvent { event, .. } => match event {
-                    winit::event::WindowEvent::CloseRequested => {
-                        *control_flow = winit::event_loop::ControlFlow::Exit;
-                        event_bus.push_event(AppCloseRequestedEvent {});
-                    }
-                    winit::event::WindowEvent::Resized(size) => {
-                        let size = [size.width, size.height];
-                        let r = self.renderer.resize(size);
-                        event_bus.push_event(WindowResized {
-                            width: size[0] as f32,
-                            height: size[1] as f32,
-                        });
-                        check_result_and_throw(r, control_flow);
-                    }
-                    winit::event::WindowEvent::KeyboardInput { input, .. } => {
-                        let keycode = input.scancode as u16;
-                        let pressed = match input.state {
-                            winit::event::ElementState::Pressed => true,
-                            winit::event::ElementState::Released => false,
-                        };
-                        let r = input_handler.process_keyboard(keycode, pressed, event_bus);
-                        check_result_and_throw(r, control_flow);
-                    }
-                    winit::event::WindowEvent::CursorMoved { position, .. } => {
-                        let r = input_handler
-                            .process_mouse_move([position.x as f32, position.y as f32], event_bus);
-                        check_result_and_throw(r, control_flow);
-                    }
-                    winit::event::WindowEvent::MouseInput { state, button, .. } => {
-                        let pressed = match state {
-                            winit::event::ElementState::Pressed => true,
-                            winit::event::ElementState::Released => false,
-                        };
-                        let button = match button {
-                            winit::event::MouseButton::Left => MouseButton::Left,
-                            winit::event::MouseButton::Right => MouseButton::Right,
-                            winit::event::MouseButton::Middle => MouseButton::Middle,
-                            winit::event::MouseButton::Other(id) => {
-                                let id: u8 = id.try_into().unwrap_or(u8::MAX);
-                                MouseButton::Other(id)
-                            }
-                        };
-                        let r = input_handler.process_mouse_button(button, pressed, event_bus);
-                        check_result_and_throw(r, control_flow);
-                    }
-                    winit::event::WindowEvent::MouseWheel { delta, .. } => {
-                        let delta = match delta {
-                            winit::event::MouseScrollDelta::LineDelta(x, y) => [x, y],
-                            winit::event::MouseScrollDelta::PixelDelta(position) => {
-                                [position.x as f32, position.y as f32]
-                            }
-                        };
-                        let r = input_handler.process_mouse_scroll(delta);
-                        check_result_and_throw(r, control_flow);
-                    }
-                    _ => (),
-                },
-                _ => (),
-            });
+        if let PumpStatus::Exit(code) = status {
+            bail!("Winit event loop exited with code {code}");
+        }
 
-        update_result
+        let mut submitter = world.write_resource::<RenderSubmitter>();
+        let render_package = submitter.finalize_submission();
+        let result = self.renderer.render(&render_package);
+
+        if let Err(e) = result {
+            bail!("Failed to render frame: {e}");
+        } else {
+            Ok(())
+        }
     }
 }

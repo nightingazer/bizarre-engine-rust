@@ -13,5 +13,4 @@ bizarre_render = { path = "../bizarre_render" }
 nalgebra-glm = { workspace = true }
 anyhow = { workspace = true }
 specs = { workspace = true }
-
-winit = "0.28.7"
+winit = { workspace = true }

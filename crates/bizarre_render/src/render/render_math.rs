@@ -1,15 +1,14 @@
 use specs::{Component, VecStorage};
-use vulkano::buffer::BufferContents;
 
 #[repr(C)]
-#[derive(Default, Debug, Clone, BufferContents)]
+#[derive(Default, Debug, Clone)]
 pub struct AmbientLight {
     pub color: [f32; 3],
     pub intensity: f32,
 }
 
 #[repr(C)]
-#[derive(Default, Debug, Clone, BufferContents)]
+#[derive(Default, Debug, Clone)]
 pub struct DirectionalLight {
     pub position: [f32; 3],
     pub color: [f32; 3],

@@ -5,6 +5,11 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["vulkan_debug"]
+vulkan_debug = []
+
+
 [dependencies]
 anyhow = { workspace = true }
 thiserror = { workspace = true }
@@ -12,10 +17,10 @@ nalgebra-glm = { workspace = true }
 specs = { workspace = true }
 
 tobj = "4.0.0"
-winit = "0.28.7"
 png = "0.17.10"
+winit = { workspace = true }
 bizarre_logger = { path = "../bizarre_logger" }
-vulkano = "0.34.1"
-vulkano-win = "0.34.0"
-vulkano-shaders = "0.34.0"
+ash = "0.37.3+1.3.251"
+ash-window = "0.12.0"
+raw-window-handle = "0.5.0"
 bmfont = "0.3.3"
