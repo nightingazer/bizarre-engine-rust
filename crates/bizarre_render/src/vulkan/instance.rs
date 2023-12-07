@@ -13,7 +13,9 @@ pub struct VulkanInstance {
     pub instance: ash::Instance,
 
     #[cfg(feature = "vulkan_debug")]
-    _debug_messenger: vk::DebugUtilsMessengerEXT,
+    pub debug_messenger: vk::DebugUtilsMessengerEXT,
+    #[cfg(feature = "vulkan_debug")]
+    pub debug_utils_loader: ash::extensions::ext::DebugUtils,
 }
 
 impl VulkanInstance {
@@ -22,14 +24,16 @@ impl VulkanInstance {
         let instance = create_instance(window, &entry)?;
 
         #[cfg(feature = "vulkan_debug")]
-        let debug_messenger = create_debug_messenger(&entry, &instance)?;
+        let (debug_messenger, debug_utils_loader) = create_debug_messenger(&entry, &instance)?;
 
         Ok(Self {
             instance,
             entry,
 
             #[cfg(feature = "vulkan_debug")]
-            _debug_messenger: debug_messenger,
+            debug_messenger,
+            #[cfg(feature = "vulkan_debug")]
+            debug_utils_loader,
         })
     }
 }

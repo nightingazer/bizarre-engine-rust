@@ -1,6 +1,7 @@
 mod render;
 mod vulkan;
-mod vulkan_utils;
+mod vulkan_shaders;
+pub mod vulkan_utils;
 
 pub mod render_components;
 

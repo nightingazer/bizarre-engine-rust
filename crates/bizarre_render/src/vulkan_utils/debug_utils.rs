@@ -25,12 +25,12 @@ pub fn debug_messenger_create_info() -> DebugUtilsMessengerCreateInfoEXT {
 pub unsafe fn create_debug_messenger(
     entry: &ash::Entry,
     instance: &ash::Instance,
-) -> Result<DebugUtilsMessengerEXT> {
+) -> Result<(DebugUtilsMessengerEXT, DebugUtils)> {
     let loader = DebugUtils::new(entry, instance);
     let create_info = debug_messenger_create_info();
     let messenger = loader.create_debug_utils_messenger(&create_info, None)?;
 
-    Ok(messenger)
+    Ok((messenger, loader))
 }
 
 unsafe extern "system" fn debug_msg_callback(

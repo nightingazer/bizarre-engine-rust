@@ -1,4 +1,4 @@
-use std::default;
+use std::{default, path::Path};
 
 use anyhow::Result;
 use bizarre_engine::{
@@ -12,6 +12,7 @@ use bizarre_engine::{
     render::{
         render_components::{Mesh, Transform},
         render_math::DirectionalLight,
+        vulkan_utils::shader::load_shader,
     },
 };
 use nalgebra_glm::{quat_angle, quat_angle_axis, quat_axis, quat_euler_angles, vec3, Mat4, Vec3};
@@ -91,13 +92,15 @@ fn main() {
     core_logger_init(None).expect("Failed to init core logger");
     app_logger_init(None).expect("Failed to init app logger");
 
-    let mut app = App::new("Bizarre Engine");
-    let _ = app.add_layer(CameraLayer::default());
-    let _ = app.add_layer(InputLayer::new());
+    // let mut app = App::new("Bizarre Engine");
+    // let _ = app.add_layer(CameraLayer::default());
+    // let _ = app.add_layer(InputLayer::new());
 
-    let vis_layer = VisualLayer::new().expect("Failed to create visual layer");
-    let _ = app.add_layer(vis_layer);
+    // let vis_layer = VisualLayer::new().expect("Failed to create visual layer");
+    // let _ = app.add_layer(vis_layer);
 
-    let _ = app.add_layer(SandboxLayer);
-    app.run();
+    // let _ = app.add_layer(SandboxLayer);
+    // app.run();
+
+    let deferred_shader = load_shader(Path::new("assets/shaders/deferred.vert")).unwrap();
 }

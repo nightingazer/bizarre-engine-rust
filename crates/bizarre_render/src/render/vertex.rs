@@ -15,6 +15,7 @@ pub struct Vertex2D {
     pub uv: Vec2,
 }
 
+#[repr(C)]
 #[derive(Clone, Debug)]
 pub struct ColorNormalVertex {
     pub position: Vec3,
