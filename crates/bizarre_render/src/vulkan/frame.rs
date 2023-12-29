@@ -1,32 +1,23 @@
 use anyhow::Result;
 use ash::vk;
 
-use crate::{
-    vertex::ColorNormalVertex, vulkan_shaders::deferred, vulkan_utils::buffer::create_buffer,
-};
+use crate::vulkan_utils::framebuffer::create_framebuffer;
 
 pub struct VulkanFrame {
     pub framebuffer: vk::Framebuffer,
     pub image_index: u32,
-    pub deferred_set: vk::DescriptorSet,
-
-    pub deferred_vbo: vk::Buffer,
-    pub deferred_ibo: vk::Buffer,
-    pub deferred_ubo: vk::Buffer,
-
-    pub deferred_vbo_mem: vk::DeviceMemory,
-    pub deferred_ibo_mem: vk::DeviceMemory,
-    pub deferred_ubo_mem: vk::DeviceMemory,
-
+    pub render_cmd: vk::CommandBuffer,
+    pub render_cmd_fence: vk::Fence,
     pub image_available_semaphore: vk::Semaphore,
     pub render_finished_semaphore: vk::Semaphore,
 }
 
-pub struct VulkanFrameInfo<'a> {
-    pub framebuffer: vk::Framebuffer,
+pub struct VulkanFrameInfo {
+    pub present_image: vk::ImageView,
+    pub render_pass: vk::RenderPass,
+    pub extent: vk::Extent2D,
     pub image_index: u32,
-    pub memory_props: &'a vk::PhysicalDeviceMemoryProperties,
-    pub uniform_descriptor_pool: vk::DescriptorPool,
+    pub render_cmd: vk::CommandBuffer,
 }
 
 impl VulkanFrame {
@@ -40,69 +31,59 @@ impl VulkanFrame {
             (ia_semaphore, rf_semaphore)
         };
 
-        let (deferred_set) = {
-            let ubo_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::VERTEX)
-                .build();
+        let framebuffer_attachments = [info.present_image];
+        let framebuffer = create_framebuffer(
+            &framebuffer_attachments,
+            info.extent,
+            info.render_pass,
+            device,
+        )?;
 
-            let ubo_bindings = [ubo_layout_binding];
-
-            let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&ubo_bindings);
-
-            let layout = unsafe { device.create_descriptor_set_layout(&create_info, None)? };
-
-            let layouts = &[layout];
-
-            let allocate_info = vk::DescriptorSetAllocateInfo::builder()
-                .descriptor_pool(info.uniform_descriptor_pool)
-                .set_layouts(layouts);
-
-            let sets = unsafe { device.allocate_descriptor_sets(&allocate_info)? };
-
-            (sets[0])
+        let extent = vk::Extent3D {
+            width: info.extent.width,
+            height: info.extent.height,
+            depth: 1,
         };
 
-        let (deferred_vbo, deferred_vbo_mem) = create_buffer(
-            std::mem::size_of::<ColorNormalVertex>() * 100_000,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            info.memory_props,
-            device,
-        )?;
-
-        let (deferred_ibo, deferred_ibo_mem) = create_buffer(
-            std::mem::size_of::<u32>() * 250_000,
-            vk::BufferUsageFlags::INDEX_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            info.memory_props,
-            device,
-        )?;
-
-        let (deferred_ubo, deferred_ubo_mem) = create_buffer(
-            std::mem::size_of::<deferred::Ubo>(),
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            info.memory_props,
-            device,
-        )?;
+        let fence_create_info =
+            vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
+        let render_cmd_fence = unsafe { device.create_fence(&fence_create_info, None)? };
 
         let vulkan_frame = Self {
-            framebuffer: info.framebuffer,
             image_index: info.image_index,
-            deferred_set,
-            deferred_vbo,
-            deferred_vbo_mem,
-            deferred_ibo,
-            deferred_ibo_mem,
-            deferred_ubo,
+            framebuffer,
+            render_cmd: info.render_cmd,
+            render_cmd_fence,
             image_available_semaphore,
             render_finished_semaphore,
-            deferred_ubo_mem,
         };
 
         Ok(vulkan_frame)
+    }
+
+    pub fn destroy(&mut self, cmd_pool: vk::CommandPool, device: &ash::Device) {
+        unsafe {
+            device.destroy_semaphore(self.image_available_semaphore, None);
+            self.image_available_semaphore = vk::Semaphore::null();
+
+            device.destroy_semaphore(self.render_finished_semaphore, None);
+            self.render_finished_semaphore = vk::Semaphore::null();
+
+            device.destroy_framebuffer(self.framebuffer, None);
+            self.framebuffer = vk::Framebuffer::null();
+
+            device.destroy_fence(self.render_cmd_fence, None);
+            self.render_cmd_fence = vk::Fence::null();
+
+            device.destroy_semaphore(self.render_finished_semaphore, None);
+            self.render_finished_semaphore = vk::Semaphore::null();
+
+            device.destroy_semaphore(self.render_finished_semaphore, None);
+            self.render_finished_semaphore = vk::Semaphore::null();
+
+            let cmd_bufs = [self.render_cmd];
+            device.free_command_buffers(cmd_pool, &cmd_bufs);
+            self.render_cmd = vk::CommandBuffer::null();
+        }
     }
 }

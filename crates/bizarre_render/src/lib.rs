@@ -1,3 +1,5 @@
+#![feature(offset_of)]
+
 mod render;
 mod vulkan;
 mod vulkan_shaders;

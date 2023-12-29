@@ -1,12 +1,29 @@
+use std::ops::{Deref, DerefMut};
+
 use anyhow::Result;
 use ash::{extensions::khr, vk};
 
 use super::{device::VulkanDevice, instance::VulkanInstance};
 
 pub struct VulkanSwapchain {
-    pub swapchain: vk::SwapchainKHR,
+    pub handle: vk::SwapchainKHR,
+    pub image_format: vk::Format,
     pub surface_capabilities: vk::SurfaceCapabilitiesKHR,
     pub swapchain_loader: khr::Swapchain,
+}
+
+impl Deref for VulkanSwapchain {
+    type Target = vk::SwapchainKHR;
+
+    fn deref(&self) -> &Self::Target {
+        &self.handle
+    }
+}
+
+impl DerefMut for VulkanSwapchain {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.handle
+    }
 }
 
 impl VulkanSwapchain {
@@ -105,9 +122,10 @@ impl VulkanSwapchain {
 
         Ok((
             Self {
-                swapchain,
+                handle: swapchain,
                 surface_capabilities,
                 swapchain_loader,
+                image_format: surface_format.format,
             },
             image_views,
         ))

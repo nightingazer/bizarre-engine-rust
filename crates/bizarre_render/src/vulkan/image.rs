@@ -2,6 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use anyhow::Result;
 use ash::vk;
+use bizarre_logger::core_debug;
 
 use crate::vulkan_utils::vulkan_memory::find_memory_type_index;
 
@@ -17,6 +18,7 @@ impl VulkanImage {
     pub fn new(
         extent: vk::Extent3D,
         format: vk::Format,
+        aspect_flags: vk::ImageAspectFlags,
         usage: vk::ImageUsageFlags,
         memory_flags: vk::MemoryPropertyFlags,
         memory_props: &vk::PhysicalDeviceMemoryProperties,
@@ -51,6 +53,10 @@ impl VulkanImage {
 
         let memory = unsafe { device.allocate_memory(&allocate_info, None)? };
 
+        core_debug!("Before image view creation");
+
+        unsafe { device.bind_image_memory(image, memory, 0)? };
+
         let view = {
             let view_create_info = vk::ImageViewCreateInfo::builder()
                 .image(image)
@@ -58,7 +64,7 @@ impl VulkanImage {
                 .format(format)
                 .subresource_range(
                     vk::ImageSubresourceRange::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR)
+                        .aspect_mask(aspect_flags)
                         .base_mip_level(0)
                         .level_count(1)
                         .base_array_layer(0)
@@ -68,6 +74,8 @@ impl VulkanImage {
 
             unsafe { device.create_image_view(&view_create_info, None)? }
         };
+
+        core_debug!("After image view creation");
 
         Ok(Self {
             image,

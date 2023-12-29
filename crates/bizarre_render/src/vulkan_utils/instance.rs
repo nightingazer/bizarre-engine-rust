@@ -1,11 +1,10 @@
-use std::{borrow::Cow, ffi::CStr, os::raw::c_char, sync::Arc};
+use std::{ffi::CStr, os::raw::c_char, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use ash::{
     extensions::ext::DebugUtils,
-    vk::{self, DebugUtilsMessengerCreateInfoEXT},
+    vk::{self},
 };
-use bizarre_logger::{core_debug, core_error, core_info, core_warn};
 use raw_window_handle::HasRawDisplayHandle;
 
 use super::debug_utils::debug_messenger_create_info;
@@ -30,7 +29,7 @@ pub unsafe fn create_instance(
     let app_info = vk::ApplicationInfo::builder()
         .application_name(app_name)
         .application_version(0)
-        .api_version(vk::make_api_version(0, 1, 0, 0))
+        .api_version(vk::make_api_version(0, 1, 1, 0))
         .engine_name(CStr::from_bytes_with_nul_unchecked(b"Bizarre Engine\0"))
         .engine_version(0);
 

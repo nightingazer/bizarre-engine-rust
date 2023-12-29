@@ -56,16 +56,16 @@ unsafe extern "system" fn debug_msg_callback(
 
     match severity {
         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {
-            core_error!("Vulkan ({msg_type:?}): {msg_id_name} ({message_id_number}): {message}");
+            core_error!(format!("Vulkan ({msg_type:?}): {msg_id_name}: {message}"));
         }
         vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => {
-            core_warn!("Vulkan ({msg_type:?}): {msg_id_name} ({message_id_number}): {message}");
+            core_warn!(format!("Vulkan ({msg_type:?}): {msg_id_name}: {message}"));
         }
         vk::DebugUtilsMessageSeverityFlagsEXT::INFO => {
-            core_info!("Vulkan ({msg_type:?}): {msg_id_name} ({message_id_number}): {message}");
+            core_info!(format!("Vulkan ({msg_type:?}): {msg_id_name}: {message}"));
         }
         vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
-            core_debug!("Vulkan ({msg_type:?}): {msg_id_name} ({message_id_number}): {message}");
+            core_debug!(format!("Vulkan ({msg_type:?}): {msg_id_name}: {message}"));
         }
         _ => {}
     }

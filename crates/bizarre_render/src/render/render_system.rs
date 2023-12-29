@@ -2,24 +2,37 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use ash::{extensions::khr, vk};
+use bizarre_logger::core_debug;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use crate::{
     render_package::RenderPackage,
     vulkan::{
-        device::VulkanDevice, image::VulkanImage, instance::VulkanInstance,
+        device::VulkanDevice,
+        frame::{VulkanFrame, VulkanFrameInfo},
+        instance::VulkanInstance,
+        pipeline::VulkanPipeline,
+        render_pass::VulkanRenderPass,
         swapchain::VulkanSwapchain,
     },
-    vulkan_utils::{cmd_buffer::record_submit_cmd_buffer, vulkan_memory::find_memory_type_index},
+    vulkan_utils::{framebuffer::create_framebuffer, pipeline::create_test_pipeline},
 };
 
 pub struct RenderSystem {
     instance: VulkanInstance,
     device: VulkanDevice,
     surface: vk::SurfaceKHR,
+    surface_extent: vk::Extent2D,
     swapchain: VulkanSwapchain,
-    deferred_pipeline: vk::Pipeline,
-    uniform_descriptor_pool: vk::DescriptorPool,
+    viewport: vk::Viewport,
+    render_pass: VulkanRenderPass,
+    cmd_pool: vk::CommandPool,
+    frames: Vec<VulkanFrame>,
+    max_frames_in_flight: usize,
+    current_frame_index: usize,
+    swapchain_images: Vec<vk::ImageView>,
+
+    test_pipeline: VulkanPipeline,
 }
 
 impl RenderSystem {
@@ -41,127 +54,193 @@ impl RenderSystem {
             height: window.inner_size().height,
         };
 
-        let (swapchain, image_views) =
+        let (swapchain, swapchain_images) =
             unsafe { VulkanSwapchain::new(&instance, &device, surface, &window_extent)? };
 
-        let uniform_descriptor_pool = unsafe {
-            let pool_size = vk::DescriptorPoolSize::builder()
-                .ty(vk::DescriptorType::UNIFORM_BUFFER)
-                .descriptor_count(image_views.len() as u32)
-                .build();
+        let render_pass = VulkanRenderPass::new(swapchain.image_format, &window_extent, &device)?;
 
-            let pool_sizes = &[pool_size];
-
-            let pool_info = vk::DescriptorPoolCreateInfo::builder()
-                .pool_sizes(pool_sizes)
-                .max_sets(image_views.len() as u32);
-
-            device.create_descriptor_pool(&pool_info, None)?
+        let has_mirror_transform = swapchain
+            .surface_capabilities
+            .supported_transforms
+            .contains(vk::SurfaceTransformFlagsKHR::HORIZONTAL_MIRROR);
+        let viewport = vk::Viewport {
+            width: window_extent.width as f32,
+            height: if has_mirror_transform {
+                window_extent.height as f32
+            } else {
+                -(window_extent.height as f32)
+            },
+            min_depth: 0.0,
+            max_depth: 1.0,
+            x: 0.0,
+            y: if has_mirror_transform {
+                0.0
+            } else {
+                window_extent.height as f32
+            },
         };
 
-        unsafe {
-            let pool_create_info = vk::CommandPoolCreateInfo::builder()
+        let cmd_pool = {
+            let create_info = vk::CommandPoolCreateInfo::builder()
                 .queue_family_index(device.queue_family_index)
-                .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
+                .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+                .build();
 
-            let pool = device.create_command_pool(&pool_create_info, None)?;
+            unsafe { device.handle.create_command_pool(&create_info, None)? }
+        };
 
-            let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(pool)
-                .command_buffer_count(2)
-                .level(vk::CommandBufferLevel::PRIMARY);
+        let render_cmd_bufs = {
+            let create_info = vk::CommandBufferAllocateInfo::builder()
+                .command_pool(cmd_pool)
+                .command_buffer_count(swapchain_images.len() as u32)
+                .level(vk::CommandBufferLevel::PRIMARY)
+                .build();
 
-            let command_buffers = device.allocate_command_buffers(&command_buffer_allocate_info)?;
+            unsafe { device.handle.allocate_command_buffers(&create_info)? }
+        };
 
-            let setup_cmd_buffer = command_buffers[0];
-            let draw_cmd_buffer = command_buffers[1];
+        let frames = swapchain_images
+            .iter()
+            .enumerate()
+            .map(|(i, present_image)| {
+                VulkanFrame::new(
+                    &VulkanFrameInfo {
+                        extent: window_extent,
+                        image_index: i as u32,
+                        present_image: *present_image,
+                        render_pass: render_pass.handle,
+                        render_cmd: render_cmd_bufs[i],
+                    },
+                    &device,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
 
-            let device_memory_properties =
-                instance.get_physical_device_memory_properties(device.physical_device);
+        let test_pipeline = create_test_pipeline(&viewport, render_pass.handle, &device)?;
 
-            let depth_image = VulkanImage::new(
-                vk::Extent3D {
-                    width: window_extent.width,
-                    height: window_extent.height,
-                    depth: 1,
-                },
-                vk::Format::D16_UNORM,
-                vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-                vk::MemoryPropertyFlags::DEVICE_LOCAL,
-                &device_memory_properties,
-                &device,
-            )?;
-
-            let descriptor_pool = {};
-
-            device.bind_image_memory(*depth_image, depth_image.memory, 0)?;
-
-            let fence_create_info =
-                vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
-
-            let draw_commands_reuse_fence = device.create_fence(&fence_create_info, None)?;
-            let setup_commands_reuse_fence = device.create_fence(&fence_create_info, None)?;
-
-            record_submit_cmd_buffer(
-                &device,
-                setup_cmd_buffer,
-                setup_commands_reuse_fence,
-                device.present_queue,
-                &[],
-                &[],
-                &[],
-                |device, cmd| {
-                    let layout_transition_bariers = vk::ImageMemoryBarrier::builder()
-                        .image(*depth_image)
-                        .dst_access_mask(
-                            vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ
-                                | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
-                        )
-                        .new_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-                        .old_layout(vk::ImageLayout::UNDEFINED)
-                        .subresource_range(
-                            vk::ImageSubresourceRange::builder()
-                                .aspect_mask(vk::ImageAspectFlags::DEPTH)
-                                .layer_count(1)
-                                .level_count(1)
-                                .build(),
-                        )
-                        .build();
-
-                    device.cmd_pipeline_barrier(
-                        cmd,
-                        vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-                        vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
-                        vk::DependencyFlags::empty(),
-                        &[],
-                        &[],
-                        &[layout_transition_bariers],
-                    );
-                },
-            );
-
-            let semaphore_create_info = vk::SemaphoreCreateInfo::default();
-
-            let present_complete_semaphore =
-                device.create_semaphore(&semaphore_create_info, None)?;
-
-            let render_complete_semaphore =
-                device.create_semaphore(&semaphore_create_info, None)?;
-        }
+        let max_frames_in_flight = swapchain_images.len();
 
         let system = Self {
             instance,
             device,
             surface,
             swapchain,
-            uniform_descriptor_pool,
-            deferred_pipeline: vk::Pipeline::null(),
+            swapchain_images,
+            viewport,
+            render_pass,
+            cmd_pool,
+            frames,
+            current_frame_index: 0,
+            max_frames_in_flight,
+            surface_extent: window_extent,
+            test_pipeline,
         };
 
         Ok(system)
     }
 
     pub fn render(&mut self, render_package: &RenderPackage) -> Result<()> {
+        let frame = &mut self.frames[self.current_frame_index];
+        let (present_index, _) = unsafe {
+            self.swapchain.swapchain_loader.acquire_next_image(
+                *self.swapchain,
+                u64::MAX,
+                frame.image_available_semaphore,
+                vk::Fence::null(),
+            )?
+        };
+
+        let clear_values = [vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [0.0, 0.0, 0.0, 1.0],
+            },
+        }];
+
+        let cmd_begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+            .build();
+
+        let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+            .render_pass(*self.render_pass)
+            .clear_values(&clear_values)
+            .framebuffer(frame.framebuffer)
+            .render_area(self.surface_extent.into())
+            .build();
+
+        unsafe {
+            let fences = [frame.render_cmd_fence];
+            self.device.wait_for_fences(&fences, true, u64::MAX)?;
+
+            self.device.reset_fences(&fences)?;
+
+            self.device.reset_command_buffer(
+                frame.render_cmd,
+                vk::CommandBufferResetFlags::RELEASE_RESOURCES,
+            )?;
+
+            self.device
+                .begin_command_buffer(frame.render_cmd, &cmd_begin_info)?;
+
+            self.device.cmd_begin_render_pass(
+                frame.render_cmd,
+                &render_pass_begin_info,
+                vk::SubpassContents::INLINE,
+            );
+
+            let viewports = [self.viewport];
+            let scissors = [vk::Rect2D {
+                extent: self.surface_extent,
+                offset: vk::Offset2D { x: 0, y: 0 },
+            }];
+
+            self.device
+                .cmd_set_viewport(frame.render_cmd, 0, &viewports);
+            self.device.cmd_set_scissor(frame.render_cmd, 0, &scissors);
+
+            self.device.cmd_bind_pipeline(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.test_pipeline.handle,
+            );
+
+            self.device.cmd_draw(frame.render_cmd, 3, 1, 0, 0);
+
+            self.device.cmd_end_render_pass(frame.render_cmd);
+
+            self.device.end_command_buffer(frame.render_cmd)?;
+
+            let wait_semaphores = [frame.image_available_semaphore];
+            let signal_semaphores = [frame.render_finished_semaphore];
+            let cmd_buffers = [frame.render_cmd];
+            let submit_info = vk::SubmitInfo::builder()
+                .command_buffers(&cmd_buffers)
+                .wait_semaphores(&wait_semaphores)
+                .signal_semaphores(&signal_semaphores)
+                .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+                .build();
+
+            self.device.queue_submit(
+                self.device.graphics_queue,
+                &[submit_info],
+                frame.render_cmd_fence,
+            )?;
+
+            let swapchains = [self.swapchain.handle];
+            let indices = [present_index];
+            let wait_semaphores = [frame.render_finished_semaphore];
+            let present_info = vk::PresentInfoKHR::builder()
+                .wait_semaphores(&wait_semaphores)
+                .swapchains(&swapchains)
+                .image_indices(&indices)
+                .build();
+
+            self.swapchain
+                .swapchain_loader
+                .queue_present(self.device.present_queue, &present_info)?;
+        }
+
+        self.current_frame_index = (self.current_frame_index + 1) % self.max_frames_in_flight;
+
         Ok(())
     }
 
@@ -173,10 +252,31 @@ impl RenderSystem {
 impl Drop for RenderSystem {
     fn drop(&mut self) {
         unsafe {
-            self.device
-                .destroy_descriptor_pool(self.uniform_descriptor_pool, None);
+            self.device.device_wait_idle().unwrap();
+
+            self.frames
+                .iter_mut()
+                .for_each(|frame| frame.destroy(self.cmd_pool, &self.device.handle));
+
+            self.swapchain_images
+                .iter()
+                .for_each(|&image| self.device.handle.destroy_image_view(image, None));
+
+            self.device.handle.destroy_command_pool(self.cmd_pool, None);
+
+            self.test_pipeline.destroy(&self.device.handle);
+
+            self.render_pass.destroy(&self.device.handle);
+
+            self.swapchain
+                .swapchain_loader
+                .destroy_swapchain(self.swapchain.handle, None);
 
             self.device.destroy_device(None);
+
+            let surface_loader = khr::Surface::new(&self.instance.entry, &self.instance);
+
+            surface_loader.destroy_surface(self.surface, None);
 
             #[cfg(feature = "vulkan_debug")]
             self.instance

@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{bail, Result};
+use bizarre_logger::core_info;
 
 pub enum ShaderType {
     Vertex,
@@ -22,7 +23,7 @@ impl From<ShaderType> for shaderc::ShaderKind {
     }
 }
 
-pub fn load_shader(path: &Path) -> Result<Vec<u32>> {
+pub fn load_shader(path: &Path, shader_type: ShaderType) -> Result<Vec<u32>> {
     if !path.is_file() {
         bail!(
             "Could not open shader file '{}': Not a file",
@@ -43,8 +44,10 @@ pub fn load_shader(path: &Path) -> Result<Vec<u32>> {
     };
 
     let spv = if invalid_cache {
+        core_info!("Compiling shader '{}'", path.to_str().unwrap());
+
         let mut file = File::open(path)?;
-        let artifact = compile_shader(&mut file, ShaderType::Vertex, filename)?;
+        let artifact = compile_shader(&mut file, shader_type, filename)?;
 
         validate_spv(&mut Cursor::new(&artifact.as_binary_u8()))?;
 

@@ -6,8 +6,9 @@ use ash::{extensions::khr, vk};
 use super::instance::VulkanInstance;
 
 pub struct VulkanDevice {
-    pub device: ash::Device,
+    pub handle: ash::Device,
     pub physical_device: vk::PhysicalDevice,
+    pub graphics_queue: vk::Queue,
     pub present_queue: vk::Queue,
     pub queue_family_index: u32,
 }
@@ -33,6 +34,7 @@ impl VulkanDevice {
                                 && surface_loader
                                     .get_physical_device_surface_support(*p, i as u32, surface)
                                     .unwrap();
+
                         if supports_graphics_and_surface {
                             Some((*p, i))
                         } else {
@@ -61,11 +63,13 @@ impl VulkanDevice {
             .create_device(pdevice, &device_create_info, None)
             .expect("Failed to create a Vulkan Device");
 
+        let graphics_queue = device.get_device_queue(queue_family_index, 0);
         let present_queue = device.get_device_queue(queue_family_index, 0);
 
         Ok(Self {
-            device,
+            handle: device,
             physical_device: pdevice,
+            graphics_queue,
             present_queue,
             queue_family_index,
         })
@@ -76,12 +80,12 @@ impl Deref for VulkanDevice {
     type Target = ash::Device;
 
     fn deref(&self) -> &Self::Target {
-        &self.device
+        &self.handle
     }
 }
 
 impl DerefMut for VulkanDevice {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.device
+        &mut self.handle
     }
 }

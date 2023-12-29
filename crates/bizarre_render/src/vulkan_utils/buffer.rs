@@ -1,8 +1,6 @@
 use anyhow::Result;
 use ash::vk;
 
-use crate::vulkan::device::VulkanDevice;
-
 use super::vulkan_memory::find_memory_type_index;
 
 pub fn create_buffer(

@@ -56,9 +56,10 @@ impl App {
 
         self.event_bus.add_system(&mut self.observer);
 
-        let (tx, rx) = channel();
+        let (tx, rx) = channel::<AppCloseRequestedEvent>();
 
         {
+            let tx = tx.clone();
             let result = ctrlc::set_handler(move || {
                 let _ = tx.send(AppCloseRequestedEvent {});
             });
@@ -86,6 +87,7 @@ impl App {
             }
 
             if let Ok(event) = rx.try_recv() {
+                core_info!("Got a termination signal");
                 self.event_bus.push_event(event);
             }
 

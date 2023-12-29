@@ -31,6 +31,7 @@ pub struct VisualLayer {
 
 impl VisualLayer {
     pub fn new() -> Result<Self> {
+        std::env::set_var("WINIT_UNIX_BACKEND", "x11");
         let event_loop = winit::event_loop::EventLoop::new()?;
         let window: winit::window::Window = winit::window::WindowBuilder::new()
             .with_title("Bizarre Engine")
