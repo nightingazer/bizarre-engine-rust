@@ -4,5 +4,6 @@
 pub mod allocation;
 pub use allocation::{
     allocation_error::AllocationError, allocator::*, arena::ArenaAllocator,
-    arena_chunk::ArenaChunk, deallocation_error::DeallocationError, typed_arena::TypedArena,
+    deallocation_error::DeallocationError, sync_arena_chunk::SyncArenaChunk,
+    thread_local_arena_chunk::ThreadLocalArenaChunk, typed_arena::TypedArena,
 };

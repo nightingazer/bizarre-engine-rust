@@ -3,28 +3,33 @@ use std::ops::Range;
 use nalgebra_glm::Mat4;
 
 use crate::{
+    mesh::Mesh,
+    mesh_loader::MeshHandle,
     render_math::{AmbientLight, DirectionalLight},
     vertex::ColorNormalVertex,
 };
 
 #[derive(Clone, Debug)]
-pub struct MeshSubmission {
-    pub index_range: Range<u32>,
-    pub model_matrix_offset: u32,
+pub struct MeshDelete {
+    pub handle: MeshHandle,
+}
+
+#[derive(Clone, Debug)]
+pub struct MeshUpload {
+    pub mesh: MeshHandle,
+}
+
+#[derive(Clone, Debug)]
+pub struct DrawSubmission {
+    pub handle: MeshHandle,
+    pub model_matrix: Mat4,
 }
 
 #[derive(Clone, Debug)]
 pub struct RenderPackage {
-    pub meshes: Vec<MeshSubmission>,
-    pub model_matrices: [Mat4; 100],
-    pub vertices: Vec<ColorNormalVertex>,
-    pub indices: Vec<u32>,
-    pub ambient_light: Option<AmbientLight>,
-    pub directional_lights: Vec<DirectionalLight>,
-    pub clear_color: [f32; 4],
-    pub view: Mat4,
-    pub projection: Mat4,
-    pub view_projection_was_updated: bool,
+    pub mesh_uploads: Vec<MeshUpload>,
+    pub mesh_deletes: Vec<MeshDelete>,
+    pub draw_submissions: Vec<DrawSubmission>,
 
     pub avg_frame_time_ms: f64,
     pub last_frame_time_ms: f64,

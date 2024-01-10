@@ -4,19 +4,22 @@ use std::time::Duration;
 use anyhow::bail;
 use anyhow::Result;
 use bizarre_core::core_events::WindowResized;
-use bizarre_core::debug_stats::DebugStats;
 use bizarre_core::input::InputHandler;
 use bizarre_core::input::MouseButton;
+use bizarre_core::schedule::ScheduleBuilder;
+use bizarre_core::specs;
 use bizarre_core::{
     app_events::AppCloseRequestedEvent,
     layer::Layer,
-    specs::{self, Read, ReadStorage, RunNow, System, WorldExt, Write},
+    specs::{ReadStorage, System, WorldExt, Write},
 };
+use bizarre_events::observer;
 use bizarre_events::observer::EventBus;
 use bizarre_events::observer::Observer;
-use bizarre_render::render_components::transform::Transform;
-use bizarre_render::render_components::Mesh;
-use bizarre_render::RenderSystem;
+use bizarre_render::render_components::transform::TransformComponent;
+use bizarre_render::render_components::MeshComponent;
+use bizarre_render::render_systems::DrawMeshSystem;
+use bizarre_render::Renderer;
 use bizarre_render::{render_math::DirectionalLight, render_submitter::RenderSubmitter};
 use specs::Join;
 use winit::platform::pump_events::EventLoopExtPumpEvents;
@@ -26,7 +29,7 @@ use winit::platform::scancode::PhysicalKeyExtScancode;
 pub struct VisualLayer {
     event_loop: winit::event_loop::EventLoop<()>,
     _window: Arc<winit::window::Window>,
-    renderer: RenderSystem,
+    renderer: Renderer,
 }
 
 impl VisualLayer {
@@ -40,7 +43,7 @@ impl VisualLayer {
 
         let window = Arc::new(window);
 
-        let renderer = RenderSystem::new(window.clone());
+        let renderer = Renderer::new(window.clone());
         let renderer = match renderer {
             Ok(r) => r,
             Err(e) => {
@@ -74,33 +77,8 @@ impl<'a> System<'a> for LightSystem {
     }
 }
 
-struct MeshSystem;
-
-impl<'a> System<'a> for MeshSystem {
-    type SystemData = (
-        Write<'a, RenderSubmitter>,
-        ReadStorage<'a, Mesh>,
-        ReadStorage<'a, Transform>,
-        Read<'a, DebugStats>,
-    );
-
-    fn run(&mut self, data: Self::SystemData) {
-        let (mut submitter, meshes, transforms, stats) = data;
-
-        submitter.submit_frame_time(stats.last_frame_work_time_ms);
-
-        let mut submissions: Vec<(&Mesh, &Transform)> = Vec::with_capacity(meshes.count());
-
-        for submission in (&meshes, &transforms).join() {
-            submissions.push(submission);
-        }
-
-        submitter.submit_meshes(submissions.as_slice());
-    }
-}
-
 impl Observer for VisualLayer {
-    fn initialize(event_bus: &EventBus, system: bizarre_events::observer::SyncObserver<Self>) {
+    fn initialize(event_bus: &EventBus, system: observer::SyncObserver<Self>) {
         event_bus.subscribe(system, Self::handle_window_resize);
     }
 }
@@ -190,10 +168,11 @@ impl VisualLayer {
 impl Layer for VisualLayer {
     fn on_attach(
         &mut self,
-        event_bus: &bizarre_events::observer::EventBus,
-        world: &mut bizarre_core::specs::World,
+        event_bus: &EventBus,
+        world: &mut specs::World,
+        schedule_builder: &mut ScheduleBuilder,
     ) -> Result<()> {
-        event_bus.add_system(self);
+        event_bus.add_observer(self);
 
         let mut submitter = RenderSubmitter::new();
         submitter.set_clear_color([0.0, 0.0, 0.0, 1.0]);
@@ -204,8 +183,8 @@ impl Layer for VisualLayer {
 
         world.insert(submitter);
 
-        world.register::<Mesh>();
-        world.register::<Transform>();
+        world.register::<MeshComponent>();
+        world.register::<TransformComponent>();
         world.register::<DirectionalLight>();
 
         event_bus.push_event(WindowResized {
@@ -213,22 +192,12 @@ impl Layer for VisualLayer {
             height: self._window.inner_size().height as f32,
         });
 
+        schedule_builder.with_frame_system(DrawMeshSystem, "draw_meshes", &[]);
+
         Ok(())
     }
 
-    fn on_update(
-        &mut self,
-        event_bus: &bizarre_events::observer::EventBus,
-        world: &mut bizarre_core::specs::World,
-    ) -> Result<()> {
-        let mut lights_sys = LightSystem;
-        lights_sys.run_now(world);
-
-        let mut mesh_sys = MeshSystem;
-        mesh_sys.run_now(world);
-
-        world.maintain();
-
+    fn on_update(&mut self, event_bus: &EventBus, world: &mut specs::World) -> Result<()> {
         let mut input_handler = world.write_resource::<InputHandler>();
 
         let timeout = Some(Duration::ZERO);

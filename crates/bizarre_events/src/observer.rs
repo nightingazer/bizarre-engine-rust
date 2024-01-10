@@ -174,7 +174,7 @@ impl EventBus {
         })
     }
 
-    pub fn add_system<S: Observer + 'static>(&self, observer: &mut S) {
+    pub fn add_observer<S: Observer + 'static>(&self, observer: &mut S) {
         let observer = SyncObserver::new(observer);
         S::initialize(self, observer);
     }

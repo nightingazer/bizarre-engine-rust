@@ -5,13 +5,13 @@ use nalgebra_glm::{
 use specs::{Component, RunNow, VecStorage};
 
 #[derive(Debug, Clone)]
-pub struct Transform {
+pub struct TransformComponent {
     pub position: Vec3,
     pub rotation: Quat,
     pub scale: Vec3,
 }
 
-impl Transform {
+impl TransformComponent {
     pub fn rotate(&mut self, angle: f32, axis: &Vec3) -> &mut Self {
         self.rotation = quat_angle_axis(angle, axis) * self.rotation;
         self
@@ -49,8 +49,8 @@ impl Transform {
     }
 }
 
-impl From<&Transform> for Mat4 {
-    fn from(transform: &Transform) -> Self {
+impl From<&TransformComponent> for Mat4 {
+    fn from(transform: &TransformComponent) -> Self {
         let mut mat = Mat4::identity();
         mat = mat.append_nonuniform_scaling(&transform.scale);
 
@@ -67,7 +67,7 @@ impl From<&Transform> for Mat4 {
     }
 }
 
-impl Default for Transform {
+impl Default for TransformComponent {
     fn default() -> Self {
         Self {
             position: Default::default(),
@@ -77,7 +77,7 @@ impl Default for Transform {
     }
 }
 
-impl Component for Transform {
+impl Component for TransformComponent {
     type Storage = VecStorage<Self>;
 }
 

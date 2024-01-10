@@ -2,11 +2,12 @@ use std::any::TypeId;
 
 use anyhow::Result;
 
-use crate::allocation::allocation_error::AllocationError;
+use crate::{allocation::allocation_error::AllocationError, Allocator};
 
 use super::{
     allocator::{Constructor, RawAllocator, StableAllocator},
     arena_chunk::ArenaChunk,
+    thread_local_arena_chunk::ThreadLocalArenaChunk,
 };
 
 /// An arena allocator that allocates objects of a single type.
@@ -16,19 +17,19 @@ use super::{
 /// Works slower than the raw [`ArenaAllocator`](crate::ArenaAllocator),
 /// so if there is no need to drop the allocated objects,
 /// it is better to use the raw arena allocator.
-pub struct TypedArena<T: 'static> {
-    chunks: Vec<ArenaChunk>,
+pub struct TypedArena<T: 'static, C: ArenaChunk = ThreadLocalArenaChunk> {
+    chunks: Vec<C>,
     chunk_capacity: usize,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: 'static> StableAllocator for TypedArena<T> {}
+impl<T: 'static, C: ArenaChunk> StableAllocator for TypedArena<T, C> {}
 
-impl<T: 'static> TypedArena<T> {
+impl<T: 'static, C: ArenaChunk> TypedArena<T, C> {
     pub fn new(chunk_capacity: usize) -> Self {
         Self {
             chunk_capacity,
-            chunks: vec![ArenaChunk::new(chunk_capacity * std::mem::size_of::<T>())],
+            chunks: vec![C::new(chunk_capacity * std::mem::size_of::<T>())],
             _phantom: std::marker::PhantomData,
         }
     }
@@ -71,9 +72,8 @@ impl<T: 'static> TypedArena<T> {
                 },
             }
         }
-        self.chunks.push(ArenaChunk::new(
-            self.chunk_capacity * std::mem::size_of::<T>(),
-        ));
+        self.chunks
+            .push(C::new(self.chunk_capacity * std::mem::size_of::<T>()));
         self.chunks.last_mut().unwrap().alloc_raw(size, align)
     }
 
@@ -90,7 +90,7 @@ impl<T: 'static> TypedArena<T> {
     }
 }
 
-impl<T: 'static> Constructor for TypedArena<T> {
+impl<T: 'static, C: ArenaChunk> Constructor for TypedArena<T, C> {
     fn construct<V: 'static>(&mut self, value: V) -> Result<*mut V> {
         #[cfg(debug_assertions)]
         Self::assert_type::<V>()?;
@@ -121,13 +121,13 @@ impl<T: 'static> Constructor for TypedArena<T> {
     }
 }
 
-impl<T> Drop for TypedArena<T> {
+impl<T, C: ArenaChunk> Drop for TypedArena<T, C> {
     fn drop(&mut self) {
         self.reset();
     }
 }
 
-impl<T> Default for TypedArena<T> {
+impl<T, C: ArenaChunk> Default for TypedArena<T, C> {
     fn default() -> Self {
         Self::new(256)
     }

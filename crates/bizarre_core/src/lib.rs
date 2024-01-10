@@ -4,6 +4,7 @@ pub mod core_events;
 pub mod debug_stats;
 pub mod input;
 pub mod layer;
+pub mod schedule;
 pub mod timing;
 
 pub use app::*;

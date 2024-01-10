@@ -2,10 +2,11 @@ use super::{
     allocation_error::AllocationError,
     allocator::{RawAllocator, StableAllocator},
     arena_chunk::ArenaChunk,
+    thread_local_arena_chunk::ThreadLocalArenaChunk,
 };
 
 pub struct ArenaAllocator {
-    chunks: Vec<ArenaChunk>,
+    chunks: Vec<ThreadLocalArenaChunk>,
     chunk_size: usize,
 }
 
@@ -14,7 +15,7 @@ impl StableAllocator for ArenaAllocator {}
 impl ArenaAllocator {
     pub fn new(chunk_size: usize) -> Self {
         Self {
-            chunks: vec![ArenaChunk::new(chunk_size)],
+            chunks: vec![ThreadLocalArenaChunk::new(chunk_size)],
             chunk_size,
         }
     }
@@ -44,7 +45,8 @@ impl RawAllocator for ArenaAllocator {
                 },
             }
         }
-        self.chunks.push(ArenaChunk::new(self.chunk_size));
+        self.chunks
+            .push(ThreadLocalArenaChunk::new(self.chunk_size));
         self.chunks.last_mut().unwrap().alloc_raw(size, align)
     }
 }

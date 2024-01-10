@@ -2,9 +2,10 @@ use bizarre_core::{
     core_events::WindowResized,
     input::{InputHandler, KeyboardKey, KeyboardModifiers, MouseButton},
     layer::Layer,
+    schedule::ScheduleBuilder,
     timing::DeltaTime,
 };
-use bizarre_events::observer::{self, Observer};
+use bizarre_events::observer::{self, EventBus, Observer};
 use bizarre_render::{
     render_components::{Camera, CameraProjection},
     render_submitter::RenderSubmitter,
@@ -114,8 +115,9 @@ impl CameraLayer {
 impl Layer for CameraLayer {
     fn on_attach(
         &mut self,
-        event_bus: &bizarre_events::observer::EventBus,
+        event_bus: &EventBus,
         world: &mut specs::World,
+        _schedule_builder: &mut ScheduleBuilder,
     ) -> anyhow::Result<()> {
         world.register::<Camera>();
         let mut camera = Camera::with_projection(CameraProjection::Perspective {
@@ -130,16 +132,12 @@ impl Layer for CameraLayer {
 
         world.create_entity().with(camera).build();
 
-        event_bus.add_system(self);
+        event_bus.add_observer(self);
 
         Ok(())
     }
 
-    fn on_update(
-        &mut self,
-        event_bus: &bizarre_events::observer::EventBus,
-        world: &mut specs::World,
-    ) -> anyhow::Result<()> {
+    fn on_update(&mut self, event_bus: &EventBus, world: &mut specs::World) -> anyhow::Result<()> {
         let mut camera_sys = CameraSystem {
             updated_aspect_ratio: self.updated_aspect_ratio,
         };
@@ -151,10 +149,7 @@ impl Layer for CameraLayer {
 }
 
 impl Observer for CameraLayer {
-    fn initialize(
-        event_bus: &bizarre_events::observer::EventBus,
-        system: bizarre_events::observer::SyncObserver<Self>,
-    ) {
+    fn initialize(event_bus: &EventBus, system: bizarre_events::observer::SyncObserver<Self>) {
         event_bus.subscribe(system, Self::handle_resize);
     }
 }

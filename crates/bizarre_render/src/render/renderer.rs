@@ -1,12 +1,13 @@
-use std::sync::Arc;
+use std::{mem::size_of, sync::Arc};
 
 use anyhow::Result;
 use ash::{extensions::khr, vk};
-use bizarre_logger::core_debug;
+use nalgebra_glm::Mat4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use crate::{
-    render_package::RenderPackage,
+    mesh_loader::get_mesh_loader,
+    render_package::{MeshUpload, RenderPackage},
     vulkan::{
         device::VulkanDevice,
         frame::{VulkanFrame, VulkanFrameInfo},
@@ -15,10 +16,11 @@ use crate::{
         render_pass::VulkanRenderPass,
         swapchain::VulkanSwapchain,
     },
-    vulkan_utils::{framebuffer::create_framebuffer, pipeline::create_test_pipeline},
+    vulkan_shaders::deferred,
+    vulkan_utils::pipeline::create_deferred_pipeline,
 };
 
-pub struct RenderSystem {
+pub struct Renderer {
     instance: VulkanInstance,
     device: VulkanDevice,
     surface: vk::SurfaceKHR,
@@ -27,15 +29,18 @@ pub struct RenderSystem {
     viewport: vk::Viewport,
     render_pass: VulkanRenderPass,
     cmd_pool: vk::CommandPool,
+    descriptor_pool: vk::DescriptorPool,
     frames: Vec<VulkanFrame>,
     max_frames_in_flight: usize,
     current_frame_index: usize,
     swapchain_images: Vec<vk::ImageView>,
 
-    test_pipeline: VulkanPipeline,
+    pending_mesh_uploads: Vec<Vec<MeshUpload>>,
+
+    deferred_pipeline: VulkanPipeline,
 }
 
-impl RenderSystem {
+impl Renderer {
     pub fn new(window: Arc<winit::window::Window>) -> Result<Self> {
         let instance = unsafe { VulkanInstance::new(window.clone())? };
         let surface = unsafe {
@@ -89,14 +94,20 @@ impl RenderSystem {
             unsafe { device.handle.create_command_pool(&create_info, None)? }
         };
 
-        let render_cmd_bufs = {
-            let create_info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(cmd_pool)
-                .command_buffer_count(swapchain_images.len() as u32)
-                .level(vk::CommandBufferLevel::PRIMARY)
-                .build();
+        let mem_props =
+            unsafe { instance.get_physical_device_memory_properties(device.physical_device) };
 
-            unsafe { device.handle.allocate_command_buffers(&create_info)? }
+        let deferred_pipeline = create_deferred_pipeline(&viewport, render_pass.handle, &device)?;
+
+        let descriptor_pool = {
+            let pool_sizes = [vk::DescriptorPoolSize::builder()
+                .ty(vk::DescriptorType::UNIFORM_BUFFER)
+                .descriptor_count(1)
+                .build()];
+            let create_info = vk::DescriptorPoolCreateInfo::builder()
+                .max_sets(swapchain_images.len() as u32 * 4)
+                .pool_sizes(&pool_sizes);
+            unsafe { device.create_descriptor_pool(&create_info, None)? }
         };
 
         let frames = swapchain_images
@@ -109,14 +120,15 @@ impl RenderSystem {
                         image_index: i as u32,
                         present_image: *present_image,
                         render_pass: render_pass.handle,
-                        render_cmd: render_cmd_bufs[i],
+                        cmd_pool,
+                        mem_props: &mem_props,
+                        deferred_set_layout: deferred_pipeline.set_layout,
+                        descriptor_pool,
                     },
                     &device,
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-
-        let test_pipeline = create_test_pipeline(&viewport, render_pass.handle, &device)?;
 
         let max_frames_in_flight = swapchain_images.len();
 
@@ -129,11 +141,13 @@ impl RenderSystem {
             viewport,
             render_pass,
             cmd_pool,
+            descriptor_pool,
             frames,
             current_frame_index: 0,
             max_frames_in_flight,
             surface_extent: window_extent,
-            test_pipeline,
+            deferred_pipeline,
+            pending_mesh_uploads: vec![Vec::new(); max_frames_in_flight],
         };
 
         Ok(system)
@@ -155,6 +169,37 @@ impl RenderSystem {
                 float32: [0.0, 0.0, 0.0, 1.0],
             },
         }];
+
+        if !self.pending_mesh_uploads[self.current_frame_index].is_empty() {
+            let mesh_loader = get_mesh_loader();
+            let meshes = {
+                self.pending_mesh_uploads[self.current_frame_index]
+                    .drain(..)
+                    .map(|m| mesh_loader.get(m.mesh))
+                    .collect::<Result<Vec<_>>>()?
+            };
+            frame.upload_meshes(&meshes, &self.device)?;
+        }
+
+        if !render_package.mesh_uploads.is_empty() {
+            let mesh_loader = get_mesh_loader();
+            let meshes = {
+                render_package
+                    .mesh_uploads
+                    .iter()
+                    .map(|m| mesh_loader.get(m.mesh))
+                    .collect::<Result<Vec<_>>>()?
+            };
+            frame.upload_meshes(&meshes, &self.device)?;
+
+            for (i, pending) in self.pending_mesh_uploads.iter_mut().enumerate() {
+                if i == self.current_frame_index {
+                    continue;
+                }
+
+                pending.extend(render_package.mesh_uploads.clone());
+            }
+        }
 
         let cmd_begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
@@ -200,10 +245,47 @@ impl RenderSystem {
             self.device.cmd_bind_pipeline(
                 frame.render_cmd,
                 vk::PipelineBindPoint::GRAPHICS,
-                self.test_pipeline.handle,
+                self.deferred_pipeline.handle,
             );
 
-            self.device.cmd_draw(frame.render_cmd, 3, 1, 0, 0);
+            self.device
+                .cmd_bind_vertex_buffers(frame.render_cmd, 0, &[frame.mesh_vbo], &[0]);
+
+            self.device.cmd_bind_index_buffer(
+                frame.render_cmd,
+                frame.mesh_ibo,
+                0,
+                vk::IndexType::UINT32,
+            );
+
+            let deferred_uniform = deferred::Ubo {
+                model: [Mat4::identity(); 100],
+                view_projection: Mat4::identity(),
+            };
+
+            let deferred_uniform_data = unsafe {
+                self.device
+                    .map_memory(
+                        frame.deferred_ubo_memory,
+                        0,
+                        size_of::<deferred::Ubo>() as vk::DeviceSize,
+                        vk::MemoryMapFlags::empty(),
+                    )?
+                    .cast::<deferred::Ubo>()
+            };
+
+            *deferred_uniform_data = deferred_uniform;
+
+            self.device.unmap_memory(frame.deferred_ubo_memory);
+
+            self.device.cmd_bind_descriptor_sets(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.deferred_pipeline.layout,
+                0,
+                &[frame.deferred_set],
+                &[],
+            );
 
             self.device.cmd_end_render_pass(frame.render_cmd);
 
@@ -249,7 +331,7 @@ impl RenderSystem {
     }
 }
 
-impl Drop for RenderSystem {
+impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
@@ -263,8 +345,11 @@ impl Drop for RenderSystem {
                 .for_each(|&image| self.device.handle.destroy_image_view(image, None));
 
             self.device.handle.destroy_command_pool(self.cmd_pool, None);
+            self.device
+                .handle
+                .destroy_descriptor_pool(self.descriptor_pool, None);
 
-            self.test_pipeline.destroy(&self.device.handle);
+            self.deferred_pipeline.destroy(&self.device.handle);
 
             self.render_pass.destroy(&self.device.handle);
 

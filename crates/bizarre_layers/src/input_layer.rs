@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bizarre_core::{input::InputHandler, layer::Layer};
+use bizarre_core::{input::InputHandler, layer::Layer, schedule::ScheduleBuilder};
 use bizarre_events::observer::EventBus;
 use specs::WorldExt;
 
@@ -18,7 +18,12 @@ impl Default for InputLayer {
 }
 
 impl Layer for InputLayer {
-    fn on_attach(&mut self, _: &EventBus, world: &mut specs::World) -> Result<()> {
+    fn on_attach(
+        &mut self,
+        _: &EventBus,
+        world: &mut specs::World,
+        _schedule_builder: &mut ScheduleBuilder,
+    ) -> Result<()> {
         world.insert(InputHandler::new());
         Ok(())
     }

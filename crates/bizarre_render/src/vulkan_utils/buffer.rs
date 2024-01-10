@@ -31,5 +31,7 @@ pub fn create_buffer(
 
     let buffer_memory = unsafe { device.allocate_memory(&allocate_info, None)? };
 
+    unsafe { device.bind_buffer_memory(buffer, buffer_memory, 0)? };
+
     Ok((buffer, buffer_memory))
 }
