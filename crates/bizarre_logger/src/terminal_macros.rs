@@ -7,43 +7,50 @@ macro_rules! escape_sequence {
 
 #[macro_export]
 macro_rules! log_to_global {
-    ($logger_getter: tt, $log_level: expr, $msg: expr) => {{
+    ($logger_name: expr, $log_level: expr, $msg: expr) => {{
         unsafe {
-            $crate::global_loggers::$logger_getter().lock().unwrap().log($log_level, String::from($msg));
+            $crate::global_loggers::LOGGER_THREAD_SENDER.as_ref().unwrap().send(
+                $crate::logger_impl::LogMessage {
+                    logger_name: $logger_name,
+                    level: $log_level,
+                    msg: $msg.to_string(),
+                    shutdown: false,
+                },
+            ).expect("Failed to send log message to global logger");
         }
     }};
-    ($logger_getter: tt, $log_level: expr, $msg:literal, $($args: expr),+) => {{
+    ($logger_name: expr, $log_level: expr, $msg:literal, $($args: expr),+) => {{
         let msg = format!($msg, $($args),+);
-        $crate::log_to_global!($logger_getter, $log_level, msg);
+        $crate::log_to_global!($logger_name, $log_level, msg);
     }}
 }
 
 macro_rules! _gen_log_macro_inner {
-    ($logger_getter: tt, $macro_name: tt, $log_level_name: tt) => {
+    ($logger_name: tt, $macro_name: tt, $log_level_name: tt) => {
         #[macro_export]
         macro_rules! $macro_name {
             ($$($$args: expr),+) => {
-                $crate::log_to_global!($logger_getter, $crate::LogLevel::$log_level_name, $$($$args),+)
+                $crate::log_to_global!(stringify!($logger_name), $crate::LogLevel::$log_level_name, $$($$args),+)
             }
         }
     }
 }
 
 macro_rules! gen_log_macros {
-    ($($logger_getter: tt { $($macro_name: tt => $log_level: tt);+; })+) => {
-        $($(_gen_log_macro_inner!($logger_getter, $macro_name, $log_level);)+)+
+    ($($logger_name: tt { $($macro_name: tt => $log_level: tt);+; })+) => {
+        $($(_gen_log_macro_inner!($logger_name, $macro_name, $log_level);)+)+
     };
 }
 
 gen_log_macros!(
-    core_logger {
+    core {
         core_debug => Debug;
         core_info => Info;
         core_warn => Warn;
         core_error => Error;
         core_critical => Critical;
     }
-    app_logger {
+    app {
         debug => Debug;
         info => Info;
         warn => Warn;

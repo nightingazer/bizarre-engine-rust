@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+cfg-if = { workspace = true }
+chrono = { workspace = true }

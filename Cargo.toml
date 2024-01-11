@@ -26,5 +26,7 @@ bitflags = "2.4.1"
 anyhow = "1.0.75"
 thiserror = "1.0.49"
 specs = { version = "0.20.0", features = ["serde", "nightly", "derive"] }
+chrono = { version = "0.4.31" }
 nalgebra-glm = {version = "0.18.0", features = ["convert-bytemuck"]}
 winit = { version = "0.29.7", features = ["rwh_05"] }
+cfg-if = "1.0"
