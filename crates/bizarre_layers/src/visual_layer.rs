@@ -243,4 +243,8 @@ impl Layer for VisualLayer {
             Ok(())
         }
     }
+
+    fn on_detach(&mut self, event_bus: &EventBus, world: &mut specs::World) {
+        self.renderer.destroy();
+    }
 }

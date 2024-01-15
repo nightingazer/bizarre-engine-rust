@@ -105,18 +105,36 @@ impl<'a> System<'a> for CameraSystem {
             view_updated = true;
         }
 
+        if input.is_key_pressed(&KeyboardKey::Z, &KeyboardModifiers::empty()) {
+            camera.yaw = 180.0;
+            camera.pitch = 0.0;
+            view_updated = true;
+        }
+        if input.is_key_pressed(&KeyboardKey::X, &KeyboardModifiers::empty()) {
+            camera.yaw = 90.0;
+            camera.pitch = 0.0;
+            view_updated = true;
+        }
+        if input.is_key_pressed(&KeyboardKey::Y, &KeyboardModifiers::empty()) {
+            camera.yaw = 0.0;
+            camera.pitch = 90.0;
+            view_updated = true;
+        }
+
         if input.is_button_pressed(&MouseButton::Right, &KeyboardModifiers::empty()) {
             let mouse_delta = input.mouse_delta();
 
             if mouse_delta != Vec2::zeros() {
                 camera.yaw += mouse_delta.x * 0.1;
-                camera.pitch += (-mouse_delta.y * 0.1).clamp(-90.0, 90.0);
+                camera.pitch += -mouse_delta.y * 0.1;
+                camera.pitch = camera.pitch.clamp(-89.0, 89.0);
                 view_updated = true;
             }
         }
 
         if view_updated {
             submitter.update_view(camera.get_view_mat());
+            submitter.update_camera_forward(camera.forward());
         }
         if projection_updated {
             submitter.update_projection(camera.get_projection_mat());

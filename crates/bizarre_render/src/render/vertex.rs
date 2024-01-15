@@ -43,6 +43,7 @@ impl Vertex {
     }
 }
 
+#[repr(C)]
 #[derive(Clone, Debug)]
 pub struct Vertex2D {
     pub position: Vec2,
@@ -58,7 +59,19 @@ pub struct ColorNormalVertex {
     pub color: Vec3,
 }
 
+#[repr(C)]
 #[derive(Clone, Debug)]
 pub struct PositionVertex {
     pub position: Vec3,
+}
+
+impl PositionVertex {
+    pub fn attribute_description() -> [vk::VertexInputAttributeDescription; 1] {
+        [vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(0)
+            .format(vk::Format::R32G32B32_SFLOAT)
+            .offset(offset_of!(PositionVertex, position) as u32)
+            .build()]
+    }
 }

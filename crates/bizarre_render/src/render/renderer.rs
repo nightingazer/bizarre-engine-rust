@@ -1,13 +1,17 @@
 use std::{f32, mem::size_of, sync::Arc};
 
 use anyhow::Result;
-use ash::{extensions::khr, vk};
-use nalgebra_glm::Mat4;
+use ash::{
+    extensions::khr,
+    vk::{self, DeviceSize},
+};
+use nalgebra_glm::{Mat4, Vec3};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use crate::{
     mesh_loader::{get_mesh_loader, MeshHandle},
     render_package::{MeshUpload, RenderPackage},
+    vertex::PositionVertex,
     vulkan::{
         device::VulkanDevice,
         frame::{VulkanFrame, VulkanFrameInfo},
@@ -16,8 +20,11 @@ use crate::{
         render_pass::VulkanRenderPass,
         swapchain::VulkanSwapchain,
     },
-    vulkan_shaders::deferred,
-    vulkan_utils::pipeline::create_deferred_pipeline,
+    vulkan_shaders::{ambient, deferred},
+    vulkan_utils::{
+        buffer::create_buffer,
+        pipeline::{create_ambient_light_pipeline, create_deferred_pipeline},
+    },
 };
 
 pub struct Renderer {
@@ -37,8 +44,15 @@ pub struct Renderer {
 
     pending_mesh_uploads: Vec<Vec<MeshUpload>>,
     pending_view_projection: Vec<Option<Mat4>>,
+    pending_view: Vec<Option<Mat4>>,
+    pending_projection: Vec<Option<Mat4>>,
+    pending_camera_forward: Vec<Option<Vec3>>,
 
     deferred_pipeline: VulkanPipeline,
+    ambient_pipeline: VulkanPipeline,
+
+    screen_vbo: vk::Buffer,
+    screen_vbo_memory: vk::DeviceMemory,
 }
 
 impl Renderer {
@@ -99,6 +113,8 @@ impl Renderer {
             unsafe { instance.get_physical_device_memory_properties(device.physical_device) };
 
         let deferred_pipeline = create_deferred_pipeline(&viewport, render_pass.handle, &device)?;
+        let ambient_pipeline =
+            create_ambient_light_pipeline(&viewport, render_pass.handle, &device)?;
 
         let descriptor_pool = {
             let pool_sizes = [vk::DescriptorPoolSize::builder()
@@ -125,6 +141,7 @@ impl Renderer {
                         mem_props: &mem_props,
                         deferred_set_layout: deferred_pipeline.set_layout,
                         descriptor_pool,
+                        ambient_set_layout: ambient_pipeline.set_layout,
                     },
                     &device,
                 )
@@ -132,6 +149,42 @@ impl Renderer {
             .collect::<Result<Vec<_>>>()?;
 
         let max_frames_in_flight = swapchain_images.len();
+
+        let (screen_vbo, screen_vbo_memory) = create_buffer(
+            size_of::<PositionVertex>() * 4,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE,
+            &mem_props,
+            &device,
+        )?;
+
+        unsafe {
+            let ptr = device
+                .map_memory(
+                    screen_vbo_memory,
+                    0,
+                    size_of::<PositionVertex>() as DeviceSize * 4,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast();
+
+            *ptr = [
+                PositionVertex {
+                    position: [1.0, 1.0, 0.0].into(),
+                },
+                PositionVertex {
+                    position: [-1.0, 1.0, 0.0].into(),
+                },
+                PositionVertex {
+                    position: [-1.0, -1.0, 0.0].into(),
+                },
+                PositionVertex {
+                    position: [1.0, -1.0, 0.0].into(),
+                },
+            ];
+
+            device.unmap_memory(screen_vbo_memory);
+        }
 
         let system = Self {
             instance,
@@ -150,6 +203,12 @@ impl Renderer {
             deferred_pipeline,
             pending_mesh_uploads: vec![Vec::new(); max_frames_in_flight],
             pending_view_projection: vec![Some(Mat4::identity()); max_frames_in_flight],
+            pending_view: vec![Some(Mat4::identity()); max_frames_in_flight],
+            pending_projection: vec![Some(Mat4::identity()); max_frames_in_flight],
+            pending_camera_forward: vec![Some(Vec3::zeros()); max_frames_in_flight],
+            ambient_pipeline,
+            screen_vbo,
+            screen_vbo_memory,
         };
 
         Ok(system)
@@ -229,6 +288,36 @@ impl Renderer {
                 }
 
                 *pending = Some(view_projection);
+            }
+
+            if let Some(view) = render_package.view {
+                for (i, pending) in self.pending_view.iter_mut().enumerate() {
+                    if i == self.current_frame_index {
+                        continue;
+                    }
+
+                    *pending = Some(view);
+                }
+            }
+
+            if let Some(projection) = render_package.projection {
+                for (i, pending) in self.pending_projection.iter_mut().enumerate() {
+                    if i == self.current_frame_index {
+                        continue;
+                    }
+
+                    *pending = Some(projection);
+                }
+            }
+
+            if let Some(camera_forward) = render_package.camera_forward {
+                for (i, pending) in self.pending_camera_forward.iter_mut().enumerate() {
+                    if i == self.current_frame_index {
+                        continue;
+                    }
+
+                    *pending = Some(camera_forward);
+                }
             }
         }
 
@@ -322,18 +411,38 @@ impl Renderer {
                 )?
                 .cast::<deferred::Ubo>();
 
+            let ambient_uniform_mem = self
+                .device
+                .map_memory(
+                    frame.ambient_ubo_memory,
+                    0,
+                    size_of::<ambient::Ubo>() as vk::DeviceSize,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast::<ambient::Ubo>();
+
             (*deferred_uniform_mem).model[..model_matrices.len()].copy_from_slice(&model_matrices);
 
             if let Some(view_projection) = self.pending_view_projection[self.current_frame_index] {
                 (*deferred_uniform_mem).view_projection = view_projection;
                 self.pending_view_projection[self.current_frame_index] = None;
+
+                if let Some(forward) = self.pending_camera_forward[self.current_frame_index] {
+                    self.pending_camera_forward[self.current_frame_index] = None;
+                    (*ambient_uniform_mem).camera_forward = [forward.x, forward.y, forward.z];
+                }
             }
 
             if let Some(view_projection) = render_package.view_projection {
                 (*deferred_uniform_mem).view_projection = view_projection;
+
+                if let Some(forward) = render_package.camera_forward {
+                    (*ambient_uniform_mem).camera_forward = [forward.x, forward.y, forward.z];
+                }
             }
 
             self.device.unmap_memory(frame.deferred_ubo_memory);
+            self.device.unmap_memory(frame.ambient_ubo_memory);
 
             self.device.cmd_bind_descriptor_sets(
                 frame.render_cmd,
@@ -358,6 +467,29 @@ impl Renderer {
 
                 current_instance += *count;
             }
+
+            self.device
+                .cmd_next_subpass(frame.render_cmd, vk::SubpassContents::INLINE);
+
+            self.device.cmd_bind_pipeline(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.ambient_pipeline.handle,
+            );
+
+            self.device.cmd_bind_descriptor_sets(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.ambient_pipeline.layout,
+                0,
+                &[frame.ambient_set],
+                &[],
+            );
+
+            self.device
+                .cmd_bind_vertex_buffers(frame.render_cmd, 0, &[self.screen_vbo], &[0]);
+
+            self.device.cmd_draw(frame.render_cmd, 4, 1, 0, 0);
 
             self.device.cmd_end_render_pass(frame.render_cmd);
 
@@ -401,10 +533,8 @@ impl Renderer {
     pub fn resize(&mut self, size: [u32; 2]) -> Result<()> {
         Ok(())
     }
-}
 
-impl Drop for Renderer {
-    fn drop(&mut self) {
+    pub fn destroy(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
 
@@ -421,6 +551,7 @@ impl Drop for Renderer {
                 .handle
                 .destroy_descriptor_pool(self.descriptor_pool, None);
 
+            self.ambient_pipeline.destroy(&self.device.handle);
             self.deferred_pipeline.destroy(&self.device.handle);
 
             self.render_pass.destroy(&self.device.handle);
@@ -428,6 +559,9 @@ impl Drop for Renderer {
             self.swapchain
                 .swapchain_loader
                 .destroy_swapchain(self.swapchain.handle, None);
+
+            self.device.free_memory(self.screen_vbo_memory, None);
+            self.device.destroy_buffer(self.screen_vbo, None);
 
             self.device.destroy_device(None);
 

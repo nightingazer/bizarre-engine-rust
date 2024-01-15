@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use nalgebra_glm::Mat4;
+use nalgebra_glm::{Mat4, Vec3};
 
 use crate::{
     mesh::Mesh,
@@ -32,6 +32,10 @@ pub struct RenderPackage {
     pub draw_submissions: Vec<DrawSubmission>,
 
     pub view_projection: Option<Mat4>,
+    pub view: Option<Mat4>,
+    pub projection: Option<Mat4>,
+
+    pub camera_forward: Option<Vec3>,
 
     pub avg_frame_time_ms: f64,
     pub last_frame_time_ms: f64,

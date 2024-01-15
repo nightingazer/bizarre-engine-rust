@@ -6,14 +6,16 @@ use std::{
 use anyhow::{bail, Result};
 use ash::{util::Align, vk};
 
-use nalgebra_glm::Mat4;
+use nalgebra_glm::{vec3, Mat4};
 
 use crate::{
     mesh::Mesh,
     mesh_loader::MeshHandle,
     vertex::Vertex,
-    vulkan_shaders::deferred,
-    vulkan_utils::{buffer::create_buffer, framebuffer::create_framebuffer},
+    vulkan_shaders::{ambient, deferred},
+    vulkan_utils::{
+        buffer::create_buffer, framebuffer::create_framebuffer, pipeline::ambient_pipeline,
+    },
 };
 
 use super::image::VulkanImage;
@@ -40,6 +42,7 @@ pub struct VulkanFrame {
     pub mesh_ranges: HashMap<MeshHandle, MeshRange>,
 
     pub deferred_set: vk::DescriptorSet,
+    pub ambient_set: vk::DescriptorSet,
 
     pub mesh_vbo: vk::Buffer,
     pub mesh_vbo_memory: vk::DeviceMemory,
@@ -51,6 +54,9 @@ pub struct VulkanFrame {
 
     pub deferred_ubo: vk::Buffer,
     pub deferred_ubo_memory: vk::DeviceMemory,
+
+    pub ambient_ubo: vk::Buffer,
+    pub ambient_ubo_memory: vk::DeviceMemory,
 
     pub descriptor_pool: vk::DescriptorPool,
 
@@ -68,6 +74,7 @@ pub struct VulkanFrameInfo<'a> {
     pub descriptor_pool: vk::DescriptorPool,
     pub mem_props: &'a vk::PhysicalDeviceMemoryProperties,
     pub deferred_set_layout: vk::DescriptorSetLayout,
+    pub ambient_set_layout: vk::DescriptorSetLayout,
 }
 
 impl VulkanFrame {
@@ -100,7 +107,7 @@ impl VulkanFrame {
             extent,
             vk::Format::R16G16B16A16_SFLOAT,
             vk::ImageAspectFlags::COLOR,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
             info.mem_props,
             device,
@@ -110,7 +117,7 @@ impl VulkanFrame {
             extent,
             vk::Format::R16G16B16A16_SFLOAT,
             vk::ImageAspectFlags::COLOR,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
             info.mem_props,
             device,
@@ -185,30 +192,98 @@ impl VulkanFrame {
             device.unmap_memory(deferred_ubo_memory);
         }
 
-        let deferred_set_layouts = [info.deferred_set_layout];
+        let (ambient_ubo, ambient_ubo_memory) = create_buffer(
+            size_of::<ambient::Ubo>(),
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            info.mem_props,
+            device,
+        )?;
 
-        let deferred_set = {
+        unsafe {
+            let ptr = device
+                .map_memory(
+                    ambient_ubo_memory,
+                    0,
+                    size_of::<ambient::Ubo>() as u64,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast();
+
+            *ptr = ambient::Ubo {
+                color: [0.1, 0.15, 0.23],
+                camera_forward: [0.0, 0.0, -1.0],
+            };
+
+            device.unmap_memory(ambient_ubo_memory);
+        }
+
+        let set_layouts = [info.deferred_set_layout, info.ambient_set_layout];
+
+        let descriptor_sets = {
             let allocation_info = vk::DescriptorSetAllocateInfo::builder()
                 .descriptor_pool(info.descriptor_pool)
-                .set_layouts(&deferred_set_layouts);
+                .set_layouts(&set_layouts);
 
-            unsafe { device.allocate_descriptor_sets(&allocation_info)?[0] }
+            unsafe { device.allocate_descriptor_sets(&allocation_info)? }
         };
 
-        let buffer_info = [vk::DescriptorBufferInfo::builder()
+        let [deferred_set, ambient_set] = descriptor_sets.as_slice() else {
+            bail!("Descriptor set allocation failed")
+        };
+
+        let deferred_ubo_info = [vk::DescriptorBufferInfo::builder()
             .buffer(deferred_ubo)
             .range(size_of::<deferred::Ubo>() as vk::DeviceSize)
             .build()];
 
-        let deferred_uniform_set_write = vk::WriteDescriptorSet::builder()
-            .dst_set(deferred_set)
-            .dst_binding(0)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .buffer_info(&buffer_info)
-            .build();
+        let ambient_ubo_info = [vk::DescriptorBufferInfo::builder()
+            .buffer(ambient_ubo)
+            .range(size_of::<ambient::Ubo>() as vk::DeviceSize)
+            .build()];
 
-        unsafe { device.update_descriptor_sets(&[deferred_uniform_set_write], &[]) };
+        let color_input_info = [vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(color_image.view)
+            .build()];
+
+        let normals_input_info = [vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(normals_image.view)
+            .build()];
+
+        let set_writes = [
+            vk::WriteDescriptorSet::builder()
+                .dst_set(*deferred_set)
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&deferred_ubo_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(*ambient_set)
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&ambient_ubo_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(*ambient_set)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(&color_input_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(*ambient_set)
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(&normals_input_info)
+                .build(),
+        ];
+
+        unsafe { device.update_descriptor_sets(&set_writes, &[]) };
 
         let vulkan_frame = Self {
             image_index: info.image_index,
@@ -226,11 +301,13 @@ impl VulkanFrame {
             mesh_ibo,
             mesh_ibo_memory,
             mesh_ibo_offset: 0,
-            deferred_set,
+            deferred_set: *deferred_set,
             deferred_ubo,
             deferred_ubo_memory,
             descriptor_pool: info.descriptor_pool,
-
+            ambient_set: *ambient_set,
+            ambient_ubo,
+            ambient_ubo_memory,
             color_image,
             depth_image,
             normals_image,
@@ -350,6 +427,7 @@ impl VulkanFrame {
                 self.mesh_vbo_memory,
                 self.mesh_ibo_memory,
                 self.deferred_ubo_memory,
+                self.ambient_ubo_memory,
             ];
 
             for mem in mems.iter_mut() {
@@ -357,7 +435,12 @@ impl VulkanFrame {
                 *mem = vk::DeviceMemory::null();
             }
 
-            let mut bufs = [self.mesh_vbo, self.mesh_ibo, self.deferred_ubo];
+            let mut bufs = [
+                self.mesh_vbo,
+                self.mesh_ibo,
+                self.deferred_ubo,
+                self.ambient_ubo,
+            ];
             for buf in bufs.iter_mut() {
                 device.destroy_buffer(*buf, None);
                 *buf = vk::Buffer::null();

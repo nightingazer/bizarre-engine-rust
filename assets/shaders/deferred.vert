@@ -19,7 +19,9 @@ layout(location = 1) out vec3 v_normal;
 
 void main() {
     mat4 model = uniforms.model[gl_InstanceIndex];
-    gl_Position = uniforms.view_projection * model * vec4(position, 1.0);
-    v_color = color;
-    v_normal = normal;
+    mat4 view_projection_model = uniforms.view_projection * model;
+    gl_Position = view_projection_model * vec4(position, 1.0);
+    vec3 VinView = normalize(-gl_Position.xyz);
+    v_color = VinView;
+    v_normal = (view_projection_model * vec4(normal, 0.0)).xyz;
 }
