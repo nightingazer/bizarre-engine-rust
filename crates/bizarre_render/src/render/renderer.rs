@@ -1,4 +1,4 @@
-use std::{mem::size_of, sync::Arc};
+use std::{f32, mem::size_of, sync::Arc};
 
 use anyhow::Result;
 use ash::{extensions::khr, vk};
@@ -6,7 +6,7 @@ use nalgebra_glm::Mat4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use crate::{
-    mesh_loader::get_mesh_loader,
+    mesh_loader::{get_mesh_loader, MeshHandle},
     render_package::{MeshUpload, RenderPackage},
     vulkan::{
         device::VulkanDevice,
@@ -36,6 +36,7 @@ pub struct Renderer {
     swapchain_images: Vec<vk::ImageView>,
 
     pending_mesh_uploads: Vec<Vec<MeshUpload>>,
+    pending_view_projection: Vec<Option<Mat4>>,
 
     deferred_pipeline: VulkanPipeline,
 }
@@ -148,6 +149,7 @@ impl Renderer {
             surface_extent: window_extent,
             deferred_pipeline,
             pending_mesh_uploads: vec![Vec::new(); max_frames_in_flight],
+            pending_view_projection: vec![Some(Mat4::identity()); max_frames_in_flight],
         };
 
         Ok(system)
@@ -164,11 +166,29 @@ impl Renderer {
             )?
         };
 
-        let clear_values = [vk::ClearValue {
-            color: vk::ClearColorValue {
-                float32: [0.0, 0.0, 0.0, 1.0],
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
             },
-        }];
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            },
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            },
+        ];
 
         if !self.pending_mesh_uploads[self.current_frame_index].is_empty() {
             let mesh_loader = get_mesh_loader();
@@ -190,6 +210,7 @@ impl Renderer {
                     .map(|m| mesh_loader.get(m.mesh))
                     .collect::<Result<Vec<_>>>()?
             };
+
             frame.upload_meshes(&meshes, &self.device)?;
 
             for (i, pending) in self.pending_mesh_uploads.iter_mut().enumerate() {
@@ -198,6 +219,16 @@ impl Renderer {
                 }
 
                 pending.extend(render_package.mesh_uploads.clone());
+            }
+        }
+
+        if let Some(view_projection) = render_package.view_projection {
+            for (i, pending) in self.pending_view_projection.iter_mut().enumerate() {
+                if i == self.current_frame_index {
+                    continue;
+                }
+
+                *pending = Some(view_projection);
             }
         }
 
@@ -211,6 +242,29 @@ impl Renderer {
             .framebuffer(frame.framebuffer)
             .render_area(self.surface_extent.into())
             .build();
+
+        let (unique_handles, intance_counts, model_matrices) = {
+            let mut sorted_draws = render_package.draw_submissions.clone();
+            sorted_draws.sort_by(|a, b| a.handle.cmp(&b.handle));
+
+            sorted_draws.iter().fold(
+                (
+                    Vec::<MeshHandle>::new(),
+                    Vec::<u32>::new(),
+                    Vec::<Mat4>::new(),
+                ),
+                |mut data, draw| {
+                    if data.0.is_empty() || data.0.last().unwrap() != &draw.handle {
+                        data.0.push(draw.handle);
+                        data.1.push(1);
+                    } else {
+                        *data.1.last_mut().unwrap() += 1;
+                    }
+                    data.2.push(draw.model_matrix);
+                    data
+                },
+            )
+        };
 
         unsafe {
             let fences = [frame.render_cmd_fence];
@@ -258,23 +312,26 @@ impl Renderer {
                 vk::IndexType::UINT32,
             );
 
-            let deferred_uniform = deferred::Ubo {
-                model: [Mat4::identity(); 100],
-                view_projection: Mat4::identity(),
-            };
+            let deferred_uniform_mem = self
+                .device
+                .map_memory(
+                    frame.deferred_ubo_memory,
+                    0,
+                    size_of::<deferred::Ubo>() as vk::DeviceSize,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast::<deferred::Ubo>();
 
-            let deferred_uniform_data = unsafe {
-                self.device
-                    .map_memory(
-                        frame.deferred_ubo_memory,
-                        0,
-                        size_of::<deferred::Ubo>() as vk::DeviceSize,
-                        vk::MemoryMapFlags::empty(),
-                    )?
-                    .cast::<deferred::Ubo>()
-            };
+            (*deferred_uniform_mem).model[..model_matrices.len()].copy_from_slice(&model_matrices);
 
-            *deferred_uniform_data = deferred_uniform;
+            if let Some(view_projection) = self.pending_view_projection[self.current_frame_index] {
+                (*deferred_uniform_mem).view_projection = view_projection;
+                self.pending_view_projection[self.current_frame_index] = None;
+            }
+
+            if let Some(view_projection) = render_package.view_projection {
+                (*deferred_uniform_mem).view_projection = view_projection;
+            }
 
             self.device.unmap_memory(frame.deferred_ubo_memory);
 
@@ -286,6 +343,21 @@ impl Renderer {
                 &[frame.deferred_set],
                 &[],
             );
+
+            let mut current_instance = 0;
+            for (handle, count) in unique_handles.iter().zip(intance_counts.iter()) {
+                let mesh_range = frame.mesh_ranges.get(handle).unwrap();
+                self.device.cmd_draw_indexed(
+                    frame.render_cmd,
+                    mesh_range.ibo_count,
+                    *count,
+                    mesh_range.ibo_offset,
+                    mesh_range.vbo_offset,
+                    current_instance,
+                );
+
+                current_instance += *count;
+            }
 
             self.device.cmd_end_render_pass(frame.render_cmd);
 

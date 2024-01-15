@@ -1,5 +1,6 @@
 use std::{collections::HashSet, ops::Range};
 
+use bizarre_logger::core_debug;
 use nalgebra_glm::{Mat4, Vec3};
 
 use crate::{
@@ -46,9 +47,7 @@ impl RenderSubmitter {
     }
 
     pub fn upload_mesh(&mut self, mesh: &MeshComponent) {
-        self.mesh_uploads.push(MeshUpload {
-            mesh: mesh.0.clone(),
-        });
+        self.mesh_uploads.push(MeshUpload { mesh: mesh.0 });
     }
 
     pub fn submit_draw(&mut self, draw_submissions: &[DrawSubmission]) {
@@ -98,7 +97,7 @@ impl RenderSubmitter {
 
         self.mesh_uploads.retain(|e| {
             let is_first = handles.contains(&(e.mesh));
-            handles.insert(e.mesh.clone());
+            handles.insert(e.mesh);
             !is_first
         });
 
@@ -108,8 +107,15 @@ impl RenderSubmitter {
             draw_submissions: self.draw_submissions.clone(),
             avg_frame_time_ms: avg_frame_time,
             last_frame_time_ms: last_frame_time,
+            view_projection: if self.view_projection_was_updated {
+                self.view_projection_was_updated = false;
+                Some(self.projection * self.view)
+            } else {
+                None
+            },
         };
 
+        self.draw_submissions.clear();
         self.mesh_uploads.clear();
         self.frame_index = (self.frame_index + 1) % self.frame_times_ms.len();
 

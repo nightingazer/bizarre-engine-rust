@@ -8,7 +8,7 @@ use bizarre_engine::{
         App,
     },
     layers::{camera_layer::CameraLayer, input_layer::InputLayer, visual_layer::VisualLayer},
-    log::{app_logger_init, core_logger_init},
+    log::global_loggers::{logging_thread_join, logging_thread_start},
     render::{
         mesh_loader::get_mesh_loader_mut,
         render_components::{MeshComponent, TransformComponent},
@@ -62,7 +62,7 @@ impl Layer for SandboxLayer {
                         position: [x as f32, 3.0, z as f32].into(),
                         ..Default::default()
                     })
-                    .with(MeshComponent(smooth_monkey_mesh))
+                    .with(MeshComponent(monkey_mesh))
                     .build();
             }
         }
@@ -87,34 +87,11 @@ impl Layer for SandboxLayer {
     }
 }
 
-fn print_transform(transform: &TransformComponent, label: &str) {
-    println!(
-        "{}:\n\t{:?}\n\t{:?}\n\t{:?}",
-        label,
-        transform.position,
-        transform.scale,
-        quat_euler_angles(&transform.rotation)
-    );
-}
-
-struct BigObject {
-    dummy: [u64; 10],
-}
-
-#[derive(Clone, Default)]
-struct LittleObject {
-    dummy: [u64; 2],
-}
-
-impl Drop for LittleObject {
-    fn drop(&mut self) {
-        println!("Dropping little object: {:?}", self.dummy);
-    }
-}
-
 fn main() {
-    core_logger_init(None).expect("Failed to init core logger");
-    app_logger_init(None).expect("Failed to init app logger");
+    // core_logger_init(None).expect("Failed to init core logger");
+    // app_logger_init(None).expect("Failed to init app logger");
+
+    logging_thread_start(None);
 
     let mut app = App::new("Bizarre Engine");
     let _ = app.add_layer(CameraLayer::default());
@@ -124,11 +101,8 @@ fn main() {
     let _ = app.add_layer(vis_layer);
 
     let _ = app.add_layer(SandboxLayer);
+
     app.run();
 
-    let deferred_shader = load_shader(
-        Path::new("assets/shaders/deferred.vert"),
-        ShaderType::Vertex,
-    )
-    .unwrap();
+    logging_thread_join();
 }

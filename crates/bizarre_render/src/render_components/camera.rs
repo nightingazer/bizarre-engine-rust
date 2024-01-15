@@ -2,8 +2,9 @@ use nalgebra_glm::{
     look_at, ortho, perspective, quat_angle, quat_angle_axis, quat_euler_angles, quat_rotate_vec3,
     vec3, Mat4, Quat, Vec2, Vec3,
 };
-use specs::{Component, VecStorage};
+use specs::{Component, FlaggedStorage, NullStorage, VecStorage};
 
+#[derive(Debug, Clone)]
 pub enum CameraProjection {
     Perspective {
         fovy: f32,
@@ -21,7 +22,7 @@ pub enum CameraProjection {
     },
 }
 
-pub struct Camera {
+pub struct CameraComponent {
     pub yaw: f32,
     pub pitch: f32,
     pub target: Vec3,
@@ -29,11 +30,23 @@ pub struct Camera {
     pub projection: CameraProjection,
 }
 
-impl Component for Camera {
-    type Storage = VecStorage<Self>;
+impl Component for CameraComponent {
+    type Storage = FlaggedStorage<Self>;
 }
 
-impl Camera {
+pub trait Camera {
+    fn get_view_mat(&self) -> Mat4;
+    fn get_projection_mat(&self) -> Mat4;
+    fn get_view_projection_mat(&self) -> Mat4 {
+        self.get_projection_mat() * self.get_view_mat()
+    }
+}
+
+#[derive(Component)]
+#[storage(NullStorage)]
+pub struct ActiveCamera;
+
+impl CameraComponent {
     pub fn with_projection(projection: CameraProjection) -> Self {
         Self {
             yaw: 0.0,

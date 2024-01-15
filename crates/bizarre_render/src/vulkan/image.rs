@@ -53,8 +53,6 @@ impl VulkanImage {
 
         let memory = unsafe { device.allocate_memory(&allocate_info, None)? };
 
-        core_debug!("Before image view creation");
-
         unsafe { device.bind_image_memory(image, memory, 0)? };
 
         let view = {
@@ -75,8 +73,6 @@ impl VulkanImage {
             unsafe { device.create_image_view(&view_create_info, None)? }
         };
 
-        core_debug!("After image view creation");
-
         Ok(Self {
             image,
             view,
@@ -84,6 +80,18 @@ impl VulkanImage {
             format,
             extent,
         })
+    }
+
+    pub fn destroy(&mut self, device: &ash::Device) {
+        unsafe {
+            device.destroy_image_view(self.view, None);
+            device.destroy_image(self.image, None);
+            device.free_memory(self.memory, None);
+
+            self.view = vk::ImageView::null();
+            self.image = vk::Image::null();
+            self.memory = vk::DeviceMemory::null();
+        }
     }
 }
 

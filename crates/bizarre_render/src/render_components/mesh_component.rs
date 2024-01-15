@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use specs::{Component, VecStorage};
+use specs::{Component, FlaggedStorage, VecStorage};
 
 use crate::mesh_loader::MeshHandle;
 
@@ -8,7 +8,7 @@ use crate::mesh_loader::MeshHandle;
 pub struct MeshComponent(pub MeshHandle);
 
 impl Component for MeshComponent {
-    type Storage = VecStorage<Self>;
+    type Storage = FlaggedStorage<Self, VecStorage<Self>>;
 }
 
 impl Deref for MeshComponent {

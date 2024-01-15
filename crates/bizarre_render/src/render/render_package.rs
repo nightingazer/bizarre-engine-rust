@@ -31,6 +31,8 @@ pub struct RenderPackage {
     pub mesh_deletes: Vec<MeshDelete>,
     pub draw_submissions: Vec<DrawSubmission>,
 
+    pub view_projection: Option<Mat4>,
+
     pub avg_frame_time_ms: f64,
     pub last_frame_time_ms: f64,
 }

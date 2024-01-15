@@ -19,16 +19,19 @@ use bizarre_events::observer::Observer;
 use bizarre_render::render_components::transform::TransformComponent;
 use bizarre_render::render_components::MeshComponent;
 use bizarre_render::render_systems::DrawMeshSystem;
+use bizarre_render::render_systems::MeshManagementSystem;
 use bizarre_render::Renderer;
 use bizarre_render::{render_math::DirectionalLight, render_submitter::RenderSubmitter};
 use specs::Join;
+use winit::dpi::LogicalPosition;
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::platform::pump_events::PumpStatus;
 use winit::platform::scancode::PhysicalKeyExtScancode;
+use winit::window::CursorGrabMode;
 
 pub struct VisualLayer {
     event_loop: winit::event_loop::EventLoop<()>,
-    _window: Arc<winit::window::Window>,
+    window: Arc<winit::window::Window>,
     renderer: Renderer,
 }
 
@@ -54,7 +57,7 @@ impl VisualLayer {
 
         Ok(Self {
             event_loop,
-            _window: window,
+            window,
             renderer,
         })
     }
@@ -95,6 +98,7 @@ impl VisualLayer {
         _elwt: &winit::event_loop::EventLoopWindowTarget<E>,
         input_handler: &mut InputHandler,
         event_bus: &EventBus,
+        window: &winit::window::Window,
         loop_result: &mut anyhow::Result<()>,
     ) where
         E: 'static,
@@ -130,8 +134,10 @@ impl VisualLayer {
                     *loop_result = input_handler.process_keyboard(keycode, pressed, event_bus);
                 }
                 w_event::WindowEvent::CursorMoved { position, .. } => {
-                    *loop_result = input_handler
-                        .process_mouse_move([position.x as f32, position.y as f32], event_bus);
+                    *loop_result = input_handler.process_mouse_move(
+                        [position.x as f32, position.y as f32].into(),
+                        event_bus,
+                    );
                 }
                 w_event::WindowEvent::MouseInput { state, button, .. } => {
                     let pressed = match state {
@@ -188,11 +194,17 @@ impl Layer for VisualLayer {
         world.register::<DirectionalLight>();
 
         event_bus.push_event(WindowResized {
-            width: self._window.inner_size().width as f32,
-            height: self._window.inner_size().height as f32,
+            width: self.window.inner_size().width as f32,
+            height: self.window.inner_size().height as f32,
         });
 
-        schedule_builder.with_frame_system(DrawMeshSystem, "draw_meshes", &[]);
+        let mesh_management_system = MeshManagementSystem {
+            reader_id: world.write_storage::<MeshComponent>().register_reader(),
+        };
+
+        schedule_builder
+            .with_frame_system(mesh_management_system, "mesh_management", &[])
+            .with_frame_system(DrawMeshSystem, "draw_meshes", &["mesh_management"]);
 
         Ok(())
     }
@@ -203,7 +215,14 @@ impl Layer for VisualLayer {
         let timeout = Some(Duration::ZERO);
         let mut result = Ok(());
         let status = self.event_loop.pump_events(timeout, |event, ewlt| {
-            Self::handle_event(event, ewlt, &mut input_handler, event_bus, &mut result)
+            Self::handle_event(
+                event,
+                ewlt,
+                &mut input_handler,
+                event_bus,
+                &self.window,
+                &mut result,
+            )
         });
 
         if let Err(e) = result {

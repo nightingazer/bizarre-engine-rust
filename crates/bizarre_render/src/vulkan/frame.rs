@@ -1,11 +1,12 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     mem::{align_of, size_of, size_of_val},
-    ops::Range,
 };
 
 use anyhow::{bail, Result};
 use ash::{util::Align, vk};
+
+use nalgebra_glm::Mat4;
 
 use crate::{
     mesh::Mesh,
@@ -15,13 +16,16 @@ use crate::{
     vulkan_utils::{buffer::create_buffer, framebuffer::create_framebuffer},
 };
 
+use super::image::VulkanImage;
+
 const VBO_SIZE: usize = 10000 * size_of::<Vertex>();
 const IBO_SIZE: usize = 100000 * size_of::<u32>();
+const MODEL_LEN: usize = 100;
 
 pub struct MeshRange {
-    pub vbo_offset: usize,
-    pub ibo_offset: usize,
-    pub ibo_count: usize,
+    pub vbo_offset: i32,
+    pub ibo_offset: u32,
+    pub ibo_count: u32,
 }
 
 pub struct VulkanFrame {
@@ -49,6 +53,10 @@ pub struct VulkanFrame {
     pub deferred_ubo_memory: vk::DeviceMemory,
 
     pub descriptor_pool: vk::DescriptorPool,
+
+    pub color_image: VulkanImage,
+    pub depth_image: VulkanImage,
+    pub normals_image: VulkanImage,
 }
 
 pub struct VulkanFrameInfo<'a> {
@@ -72,20 +80,54 @@ impl VulkanFrame {
 
             (ia_semaphore, rf_semaphore)
         };
+        let extent = vk::Extent3D {
+            width: info.extent.width,
+            height: info.extent.height,
+            depth: 1,
+        };
 
-        let framebuffer_attachments = [info.present_image];
+        let depth_image = VulkanImage::new(
+            extent,
+            vk::Format::D32_SFLOAT,
+            vk::ImageAspectFlags::DEPTH,
+            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            info.mem_props,
+            device,
+        )?;
+
+        let color_image = VulkanImage::new(
+            extent,
+            vk::Format::R16G16B16A16_SFLOAT,
+            vk::ImageAspectFlags::COLOR,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            info.mem_props,
+            device,
+        )?;
+
+        let normals_image = VulkanImage::new(
+            extent,
+            vk::Format::R16G16B16A16_SFLOAT,
+            vk::ImageAspectFlags::COLOR,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            info.mem_props,
+            device,
+        )?;
+
+        let framebuffer_attachments = [
+            info.present_image,
+            depth_image.view,
+            color_image.view,
+            normals_image.view,
+        ];
         let framebuffer = create_framebuffer(
             &framebuffer_attachments,
             info.extent,
             info.render_pass,
             device,
         )?;
-
-        let extent = vk::Extent3D {
-            width: info.extent.width,
-            height: info.extent.height,
-            depth: 1,
-        };
 
         let cmd_allocation_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(info.cmd_pool)
@@ -105,25 +147,43 @@ impl VulkanFrame {
             VBO_SIZE,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            &info.mem_props,
-            &device,
+            info.mem_props,
+            device,
         )?;
 
         let (mesh_ibo, mesh_ibo_memory) = create_buffer(
             IBO_SIZE,
             vk::BufferUsageFlags::INDEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            &info.mem_props,
-            &device,
+            info.mem_props,
+            device,
         )?;
 
         let (deferred_ubo, deferred_ubo_memory) = create_buffer(
             size_of::<deferred::Ubo>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            &info.mem_props,
-            &device,
+            info.mem_props,
+            device,
         )?;
+
+        unsafe {
+            let ptr = device
+                .map_memory(
+                    deferred_ubo_memory,
+                    0,
+                    size_of::<deferred::Ubo>() as u64,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast::<deferred::Ubo>();
+
+            *ptr = deferred::Ubo {
+                model: [Mat4::identity(); MODEL_LEN],
+                view_projection: Mat4::identity(),
+            };
+
+            device.unmap_memory(deferred_ubo_memory);
+        }
 
         let deferred_set_layouts = [info.deferred_set_layout];
 
@@ -170,6 +230,10 @@ impl VulkanFrame {
             deferred_ubo,
             deferred_ubo_memory,
             descriptor_pool: info.descriptor_pool,
+
+            color_image,
+            depth_image,
+            normals_image,
         };
 
         Ok(vulkan_frame)
@@ -179,7 +243,7 @@ impl VulkanFrame {
         let (meshes, vbo_len, ibo_len) = meshes
             .iter()
             .map(|m| unsafe { &**m })
-            .filter(|m| self.mesh_ranges.contains_key(&m.id))
+            .filter(|m| !self.mesh_ranges.contains_key(&m.id))
             .fold(
                 (Vec::new(), 0, 0),
                 |(mut meshes, mut vbo_len, mut ibo_len), mesh| {
@@ -201,18 +265,18 @@ impl VulkanFrame {
         let mut vbo_data = Vec::with_capacity(vbo_len);
         let mut ibo_data = Vec::with_capacity(ibo_len);
 
-        let mut vbo_tmp_offset = self.mesh_vbo_offset;
-        let mut ibo_tmp_offset = self.mesh_ibo_offset;
+        let mut vbo_tmp_offset = self.mesh_vbo_offset as i32;
+        let mut ibo_tmp_offset = self.mesh_ibo_offset as u32;
 
         for mesh in meshes.iter().cloned() {
             let range = MeshRange {
                 vbo_offset: vbo_tmp_offset,
                 ibo_offset: ibo_tmp_offset,
-                ibo_count: mesh.indices.len(),
+                ibo_count: mesh.indices.len() as u32,
             };
-            self.mesh_ranges.insert(mesh.id.clone(), range);
-            vbo_tmp_offset += mesh.vertices.len();
-            ibo_tmp_offset += mesh.indices.len();
+            self.mesh_ranges.insert(mesh.id, range);
+            vbo_tmp_offset += mesh.vertices.len() as i32;
+            ibo_tmp_offset += mesh.indices.len() as u32;
             vbo_data.extend_from_slice(&mesh.vertices);
             ibo_data.extend_from_slice(&mesh.indices);
         }
@@ -297,6 +361,16 @@ impl VulkanFrame {
             for buf in bufs.iter_mut() {
                 device.destroy_buffer(*buf, None);
                 *buf = vk::Buffer::null();
+            }
+
+            let mut images = [
+                &mut self.color_image,
+                &mut self.depth_image,
+                &mut self.normals_image,
+            ];
+
+            for image in images.iter_mut() {
+                image.destroy(device);
             }
         }
     }

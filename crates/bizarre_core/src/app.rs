@@ -13,8 +13,9 @@ use crate::{
     debug_stats::DebugStats,
     layer::Layer,
     schedule::{Schedule, ScheduleBuilder},
-    timing::{DeltaTime, RunningTime},
 };
+
+use bizarre_common::resources::{DeltaTime, RunningTime};
 
 pub struct App {
     name: Box<str>,
@@ -80,9 +81,12 @@ impl App {
         self.world.insert(DebugStats::default());
 
         self.schedule = self.schedule_builder.build();
+        self.schedule.frame_dispatcher.setup(&mut self.world);
 
         while self.observer.running {
             let frame_start = Instant::now();
+
+            self.schedule.frame_dispatcher.dispatch(&self.world);
 
             for layer in self.layers.iter_mut() {
                 let r = layer.on_update(&self.event_bus, &mut self.world);
@@ -92,8 +96,6 @@ impl App {
                     return;
                 }
             }
-
-            self.schedule.frame_dispatcher.dispatch(&self.world);
 
             if let Ok(event) = rx.try_recv() {
                 core_info!("Got a termination signal");

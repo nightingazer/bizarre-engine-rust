@@ -1,4 +1,5 @@
 use bizarre_events::observer::EventBus;
+use nalgebra_glm::Vec2;
 
 use crate::{
     input::input_event::KeyboardModifiers,
@@ -8,9 +9,9 @@ use crate::{
 use super::mouse_button::MouseButton;
 
 pub struct InputHandler {
-    mouse_previous_position: [f32; 2],
-    mouse_position: [f32; 2],
-    mouse_wheel_delta: [f32; 2],
+    mouse_previous_position: Vec2,
+    mouse_position: Vec2,
+    mouse_wheel_delta: Vec2,
     keyboard_modifiers: KeyboardModifiers,
     keyboard_state: [bool; u16::MAX as usize],
     previous_keyboard_state: [bool; u16::MAX as usize],
@@ -27,9 +28,9 @@ impl Default for InputHandler {
 impl InputHandler {
     pub fn new() -> Self {
         Self {
-            mouse_position: [0.0, 0.0],
-            mouse_previous_position: [0.0, 0.0],
-            mouse_wheel_delta: [0.0, 0.0],
+            mouse_position: [0.0, 0.0].into(),
+            mouse_previous_position: [0.0, 0.0].into(),
+            mouse_wheel_delta: [0.0, 0.0].into(),
             keyboard_modifiers: KeyboardModifiers::NONE,
             keyboard_state: [false; u16::MAX as usize],
             previous_keyboard_state: [false; u16::MAX as usize],
@@ -94,7 +95,7 @@ impl InputHandler {
 
     pub fn process_mouse_move(
         &mut self,
-        position: [f32; 2],
+        position: Vec2,
         event_bus: &EventBus,
     ) -> anyhow::Result<()> {
         self.mouse_position = position;
@@ -151,7 +152,7 @@ impl InputHandler {
 
             event_bus.push_event(event);
         }
-        self.mouse_wheel_delta = [0.0, 0.0];
+        self.mouse_wheel_delta = [0.0, 0.0].into();
         self.mouse_previous_position = self.mouse_position;
         self.previous_keyboard_state = self.keyboard_state;
         self.previous_mouse_button_state = self.mouse_button_state;
@@ -168,14 +169,14 @@ impl InputHandler {
             && self.keyboard_modifiers.bits() == modifiers.bits()
     }
 
-    pub fn mouse_delta(&self) -> [f32; 2] {
+    pub fn mouse_delta(&self) -> Vec2 {
         let mut delta = self.mouse_position;
         delta[0] -= self.mouse_previous_position[0];
         delta[1] -= self.mouse_previous_position[1];
         delta
     }
 
-    pub fn scroll_delta(&self) -> [f32; 2] {
+    pub fn scroll_delta(&self) -> Vec2 {
         self.mouse_wheel_delta
     }
 }

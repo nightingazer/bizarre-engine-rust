@@ -177,17 +177,23 @@ pub fn create_deferred_pipeline(
         .polygon_mode(vk::PolygonMode::FILL)
         .line_width(1.0)
         .cull_mode(vk::CullModeFlags::BACK)
-        .front_face(vk::FrontFace::CLOCKWISE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
         .depth_bias_enable(false);
 
     let multisampling_info = vk::PipelineMultisampleStateCreateInfo::builder()
         .sample_shading_enable(false)
         .rasterization_samples(vk::SampleCountFlags::TYPE_1);
 
-    let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::builder()
-        .color_write_mask(vk::ColorComponentFlags::RGBA)
-        .blend_enable(false)
-        .build()];
+    let color_blend_attachments = [
+        vk::PipelineColorBlendAttachmentState::builder()
+            .color_write_mask(vk::ColorComponentFlags::RGBA)
+            .blend_enable(false)
+            .build(),
+        vk::PipelineColorBlendAttachmentState::builder()
+            .color_write_mask(vk::ColorComponentFlags::RGBA)
+            .blend_enable(false)
+            .build(),
+    ];
 
     let color_blend_info = vk::PipelineColorBlendStateCreateInfo::builder()
         .logic_op_enable(false)
@@ -245,12 +251,20 @@ pub fn create_deferred_pipeline(
 
     let stages = [vert_stage, frag_stage];
 
+    let depth_stencil_info = vk::PipelineDepthStencilStateCreateInfo::builder()
+        .depth_test_enable(true)
+        .depth_write_enable(true)
+        .depth_compare_op(vk::CompareOp::LESS)
+        .depth_bounds_test_enable(false)
+        .stencil_test_enable(false);
+
     let pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
         .stages(&stages)
         .vertex_input_state(&vertex_input_info)
         .input_assembly_state(&input_assembly_info)
         .viewport_state(&viewport_info)
         .rasterization_state(&rasterizer_info)
+        .depth_stencil_state(&depth_stencil_info)
         .multisample_state(&multisampling_info)
         .color_blend_state(&color_blend_info)
         .dynamic_state(&dynamic_state_info)
