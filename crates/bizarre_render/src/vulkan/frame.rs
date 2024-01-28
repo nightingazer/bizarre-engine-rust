@@ -12,9 +12,11 @@ use crate::{
     mesh::Mesh,
     mesh_loader::MeshHandle,
     vertex::Vertex,
-    vulkan_shaders::{ambient, deferred},
+    vulkan_shaders::{ambient, deferred, directional},
     vulkan_utils::{
-        buffer::create_buffer, framebuffer::create_framebuffer, pipeline::ambient_pipeline,
+        buffer::create_buffer,
+        framebuffer::create_framebuffer,
+        pipeline::{ambient_pipeline, directional_pipeline},
     },
 };
 
@@ -43,6 +45,7 @@ pub struct VulkanFrame {
 
     pub deferred_set: vk::DescriptorSet,
     pub ambient_set: vk::DescriptorSet,
+    pub directional_set: vk::DescriptorSet,
 
     pub mesh_vbo: vk::Buffer,
     pub mesh_vbo_memory: vk::DeviceMemory,
@@ -57,6 +60,9 @@ pub struct VulkanFrame {
 
     pub ambient_ubo: vk::Buffer,
     pub ambient_ubo_memory: vk::DeviceMemory,
+
+    pub directional_ubo: vk::Buffer,
+    pub directional_ubo_memory: vk::DeviceMemory,
 
     pub descriptor_pool: vk::DescriptorPool,
 
@@ -75,6 +81,7 @@ pub struct VulkanFrameInfo<'a> {
     pub mem_props: &'a vk::PhysicalDeviceMemoryProperties,
     pub deferred_set_layout: vk::DescriptorSetLayout,
     pub ambient_set_layout: vk::DescriptorSetLayout,
+    pub directional_set_layout: vk::DescriptorSetLayout,
 }
 
 impl VulkanFrame {
@@ -217,7 +224,38 @@ impl VulkanFrame {
             device.unmap_memory(ambient_ubo_memory);
         }
 
-        let set_layouts = [info.deferred_set_layout, info.ambient_set_layout];
+        let (directional_ubo, directional_ubo_memory) = create_buffer(
+            size_of::<directional::Ubo>(),
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            info.mem_props,
+            device,
+        )?;
+
+        unsafe {
+            let ptr = device
+                .map_memory(
+                    directional_ubo_memory,
+                    0,
+                    size_of::<directional::Ubo>() as vk::DeviceSize,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast();
+
+            *ptr = directional::Ubo {
+                color: vec3(0.9, 0.75, 0.55),
+                direction: vec3(1.0, 1.0, 1.0).normalize(),
+                ..Default::default()
+            };
+
+            device.unmap_memory(directional_ubo_memory);
+        }
+
+        let set_layouts = [
+            info.deferred_set_layout,
+            info.ambient_set_layout,
+            info.directional_set_layout,
+        ];
 
         let descriptor_sets = {
             let allocation_info = vk::DescriptorSetAllocateInfo::builder()
@@ -227,7 +265,7 @@ impl VulkanFrame {
             unsafe { device.allocate_descriptor_sets(&allocation_info)? }
         };
 
-        let [deferred_set, ambient_set] = descriptor_sets.as_slice() else {
+        let [deferred_set, ambient_set, directional_set] = descriptor_sets.as_slice() else {
             bail!("Descriptor set allocation failed")
         };
 
@@ -239,6 +277,11 @@ impl VulkanFrame {
         let ambient_ubo_info = [vk::DescriptorBufferInfo::builder()
             .buffer(ambient_ubo)
             .range(size_of::<ambient::Ubo>() as vk::DeviceSize)
+            .build()];
+
+        let directional_ubo_info = [vk::DescriptorBufferInfo::builder()
+            .buffer(directional_ubo)
+            .range(vk::WHOLE_SIZE)
             .build()];
 
         let color_input_info = [vk::DescriptorImageInfo::builder()
@@ -280,6 +323,27 @@ impl VulkanFrame {
                 .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
                 .image_info(&normals_input_info)
                 .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(*directional_set)
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&directional_ubo_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(*directional_set)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(&color_input_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(*directional_set)
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(&normals_input_info)
+                .build(),
         ];
 
         unsafe { device.update_descriptor_sets(&set_writes, &[]) };
@@ -307,6 +371,9 @@ impl VulkanFrame {
             ambient_set: *ambient_set,
             ambient_ubo,
             ambient_ubo_memory,
+            directional_set: *directional_set,
+            directional_ubo,
+            directional_ubo_memory,
             color_image,
             depth_image,
             normals_image,
@@ -427,6 +494,7 @@ impl VulkanFrame {
                 self.mesh_ibo_memory,
                 self.deferred_ubo_memory,
                 self.ambient_ubo_memory,
+                self.directional_ubo_memory,
             ];
 
             for mem in mems.iter_mut() {
@@ -439,6 +507,7 @@ impl VulkanFrame {
                 self.mesh_ibo,
                 self.deferred_ubo,
                 self.ambient_ubo,
+                self.directional_ubo,
             ];
             for buf in bufs.iter_mut() {
                 device.destroy_buffer(*buf, None);

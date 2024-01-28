@@ -23,7 +23,9 @@ use crate::{
     vulkan_shaders::{ambient, deferred},
     vulkan_utils::{
         buffer::create_buffer,
-        pipeline::{create_ambient_light_pipeline, create_deferred_pipeline},
+        pipeline::{
+            create_ambient_light_pipeline, create_deferred_pipeline, create_directional_pipeline,
+        },
     },
 };
 
@@ -50,6 +52,7 @@ pub struct Renderer {
 
     deferred_pipeline: VulkanPipeline,
     ambient_pipeline: VulkanPipeline,
+    directional_pipeline: VulkanPipeline,
 
     screen_vbo: vk::Buffer,
     screen_vbo_memory: vk::DeviceMemory,
@@ -115,6 +118,8 @@ impl Renderer {
         let deferred_pipeline = create_deferred_pipeline(&viewport, render_pass.handle, &device)?;
         let ambient_pipeline =
             create_ambient_light_pipeline(&viewport, render_pass.handle, &device)?;
+        let directional_pipeline =
+            create_directional_pipeline(&viewport, render_pass.handle, &device)?;
 
         let descriptor_pool = {
             let pool_sizes = [vk::DescriptorPoolSize::builder()
@@ -142,6 +147,7 @@ impl Renderer {
                         deferred_set_layout: deferred_pipeline.set_layout,
                         descriptor_pool,
                         ambient_set_layout: ambient_pipeline.set_layout,
+                        directional_set_layout: directional_pipeline.set_layout,
                     },
                     &device,
                 )
@@ -207,6 +213,7 @@ impl Renderer {
             pending_projection: vec![Some(Mat4::identity()); max_frames_in_flight],
             pending_camera_forward: vec![Some(Vec3::zeros()); max_frames_in_flight],
             ambient_pipeline,
+            directional_pipeline,
             screen_vbo,
             screen_vbo_memory,
         };
@@ -482,6 +489,23 @@ impl Renderer {
 
             self.device.cmd_draw(frame.render_cmd, 4, 1, 0, 0);
 
+            self.device.cmd_bind_pipeline(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.directional_pipeline.handle,
+            );
+
+            self.device.cmd_bind_descriptor_sets(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.directional_pipeline.layout,
+                0,
+                &[frame.directional_set],
+                &[],
+            );
+
+            self.device.cmd_draw(frame.render_cmd, 4, 1, 0, 0);
+
             self.device.cmd_end_render_pass(frame.render_cmd);
 
             self.device.end_command_buffer(frame.render_cmd)?;
@@ -544,6 +568,7 @@ impl Renderer {
 
             self.ambient_pipeline.destroy(&self.device.handle);
             self.deferred_pipeline.destroy(&self.device.handle);
+            self.directional_pipeline.destroy(&self.device.handle);
 
             self.render_pass.destroy(&self.device.handle);
 
