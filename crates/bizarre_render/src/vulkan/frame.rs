@@ -212,7 +212,6 @@ impl VulkanFrame {
 
             *ptr = ambient::Ubo {
                 color: [0.1, 0.15, 0.23],
-                camera_forward: [0.0, 0.0, -1.0],
             };
 
             device.unmap_memory(ambient_ubo_memory);

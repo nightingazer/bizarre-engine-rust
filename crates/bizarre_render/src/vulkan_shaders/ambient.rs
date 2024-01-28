@@ -4,7 +4,6 @@ use ash::vk;
 #[derive(Debug, Clone)]
 pub struct Ubo {
     pub color: [f32; 3],
-    pub camera_forward: [f32; 3],
 }
 
 pub fn descriptor_set_bindings() -> [vk::DescriptorSetLayoutBinding; 3] {

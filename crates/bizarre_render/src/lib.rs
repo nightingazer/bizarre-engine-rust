@@ -1,4 +1,3 @@
-#![feature(offset_of)]
 #![feature(lazy_cell)]
 
 mod assets;

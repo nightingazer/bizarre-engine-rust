@@ -426,19 +426,10 @@ impl Renderer {
             if let Some(view_projection) = self.pending_view_projection[self.current_frame_index] {
                 (*deferred_uniform_mem).view_projection = view_projection;
                 self.pending_view_projection[self.current_frame_index] = None;
-
-                if let Some(forward) = self.pending_camera_forward[self.current_frame_index] {
-                    self.pending_camera_forward[self.current_frame_index] = None;
-                    (*ambient_uniform_mem).camera_forward = [forward.x, forward.y, forward.z];
-                }
             }
 
             if let Some(view_projection) = render_package.view_projection {
                 (*deferred_uniform_mem).view_projection = view_projection;
-
-                if let Some(forward) = render_package.camera_forward {
-                    (*ambient_uniform_mem).camera_forward = [forward.x, forward.y, forward.z];
-                }
             }
 
             self.device.unmap_memory(frame.deferred_ubo_memory);
