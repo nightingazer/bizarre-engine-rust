@@ -12,7 +12,7 @@ use crate::{
     mesh::Mesh,
     mesh_loader::MeshHandle,
     vertex::Vertex,
-    vulkan_shaders::{ambient, deferred, directional},
+    vulkan_shaders::{ambient, deferred, directional, floor},
     vulkan_utils::{
         buffer::create_buffer,
         framebuffer::create_framebuffer,
@@ -46,6 +46,7 @@ pub struct VulkanFrame {
     pub deferred_set: vk::DescriptorSet,
     pub ambient_set: vk::DescriptorSet,
     pub directional_set: vk::DescriptorSet,
+    pub floor_set: vk::DescriptorSet,
 
     pub mesh_vbo: vk::Buffer,
     pub mesh_vbo_memory: vk::DeviceMemory,
@@ -63,6 +64,9 @@ pub struct VulkanFrame {
 
     pub directional_ubo: vk::Buffer,
     pub directional_ubo_memory: vk::DeviceMemory,
+
+    pub floor_ubo: vk::Buffer,
+    pub floor_ubo_memory: vk::DeviceMemory,
 
     pub descriptor_pool: vk::DescriptorPool,
 
@@ -82,6 +86,7 @@ pub struct VulkanFrameInfo<'a> {
     pub deferred_set_layout: vk::DescriptorSetLayout,
     pub ambient_set_layout: vk::DescriptorSetLayout,
     pub directional_set_layout: vk::DescriptorSetLayout,
+    pub floor_set_layout: vk::DescriptorSetLayout,
 }
 
 impl VulkanFrame {
@@ -251,10 +256,37 @@ impl VulkanFrame {
             device.unmap_memory(directional_ubo_memory);
         }
 
+        let (floor_ubo, floor_ubo_memory) = create_buffer(
+            std::mem::size_of::<floor::Ubo>(),
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            info.mem_props,
+            device,
+        )?;
+
+        unsafe {
+            let ptr = device
+                .map_memory(
+                    floor_ubo_memory,
+                    0,
+                    std::mem::size_of::<floor::Ubo>() as vk::DeviceSize,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast();
+
+            *ptr = floor::Ubo {
+                view: Mat4::identity(),
+                projection: Mat4::identity(),
+            };
+
+            device.unmap_memory(floor_ubo_memory);
+        }
+
         let set_layouts = [
             info.deferred_set_layout,
             info.ambient_set_layout,
             info.directional_set_layout,
+            info.floor_set_layout,
         ];
 
         let descriptor_sets = {
@@ -265,7 +297,8 @@ impl VulkanFrame {
             unsafe { device.allocate_descriptor_sets(&allocation_info)? }
         };
 
-        let [deferred_set, ambient_set, directional_set] = descriptor_sets.as_slice() else {
+        let [deferred_set, ambient_set, directional_set, floor_set] = descriptor_sets.as_slice()
+        else {
             bail!("Descriptor set allocation failed")
         };
 
@@ -282,6 +315,11 @@ impl VulkanFrame {
         let directional_ubo_info = [vk::DescriptorBufferInfo::builder()
             .buffer(directional_ubo)
             .range(vk::WHOLE_SIZE)
+            .build()];
+
+        let floor_ubo_info = [vk::DescriptorBufferInfo::builder()
+            .range(vk::WHOLE_SIZE)
+            .buffer(floor_ubo)
             .build()];
 
         let color_input_info = [vk::DescriptorImageInfo::builder()
@@ -344,6 +382,13 @@ impl VulkanFrame {
                 .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
                 .image_info(&normals_input_info)
                 .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(*floor_set)
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&floor_ubo_info)
+                .build(),
         ];
 
         unsafe { device.update_descriptor_sets(&set_writes, &[]) };
@@ -374,6 +419,9 @@ impl VulkanFrame {
             directional_set: *directional_set,
             directional_ubo,
             directional_ubo_memory,
+            floor_set: *floor_set,
+            floor_ubo,
+            floor_ubo_memory,
             color_image,
             depth_image,
             normals_image,
@@ -495,6 +543,7 @@ impl VulkanFrame {
                 self.deferred_ubo_memory,
                 self.ambient_ubo_memory,
                 self.directional_ubo_memory,
+                self.floor_ubo_memory,
             ];
 
             for mem in mems.iter_mut() {
@@ -508,6 +557,7 @@ impl VulkanFrame {
                 self.deferred_ubo,
                 self.ambient_ubo,
                 self.directional_ubo,
+                self.floor_ubo,
             ];
             for buf in bufs.iter_mut() {
                 device.destroy_buffer(*buf, None);

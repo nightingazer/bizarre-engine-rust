@@ -108,6 +108,12 @@ impl VulkanRenderPass {
             .input_attachments(&lighting_input_attachments)
             .build();
 
+        let floor_subpass = vk::SubpassDescription::builder()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+            .color_attachments(&[output_attachment_ref])
+            .depth_stencil_attachment(&depth_attachment_ref)
+            .build();
+
         let dependencies = [
             vk::SubpassDependency {
                 src_subpass: vk::SUBPASS_EXTERNAL,
@@ -128,9 +134,20 @@ impl VulkanRenderPass {
                 dependency_flags: vk::DependencyFlags::BY_REGION,
                 ..Default::default()
             },
+            vk::SubpassDependency {
+                src_subpass: 1,
+                dst_subpass: 2,
+                src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                    | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+                dst_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                    | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+                dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ,
+                ..Default::default()
+            },
         ];
 
-        let subpasses = [deferred_subpass, lighting_subpass];
+        let subpasses = [deferred_subpass, lighting_subpass, floor_subpass];
         let attachments = [
             output_attachment,
             depth_attachment,

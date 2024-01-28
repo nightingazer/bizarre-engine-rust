@@ -20,11 +20,12 @@ use crate::{
         render_pass::VulkanRenderPass,
         swapchain::VulkanSwapchain,
     },
-    vulkan_shaders::{ambient, deferred},
+    vulkan_shaders::{ambient, deferred, floor},
     vulkan_utils::{
         buffer::create_buffer,
         pipeline::{
             create_ambient_light_pipeline, create_deferred_pipeline, create_directional_pipeline,
+            create_floor_pipeline,
         },
     },
 };
@@ -53,6 +54,7 @@ pub struct Renderer {
     deferred_pipeline: VulkanPipeline,
     ambient_pipeline: VulkanPipeline,
     directional_pipeline: VulkanPipeline,
+    floor_pipeline: VulkanPipeline,
 
     screen_vbo: vk::Buffer,
     screen_vbo_memory: vk::DeviceMemory,
@@ -120,6 +122,7 @@ impl Renderer {
             create_ambient_light_pipeline(&viewport, render_pass.handle, &device)?;
         let directional_pipeline =
             create_directional_pipeline(&viewport, render_pass.handle, &device)?;
+        let floor_pipeline = create_floor_pipeline(&viewport, render_pass.handle, &device)?;
 
         let descriptor_pool = {
             let pool_sizes = [vk::DescriptorPoolSize::builder()
@@ -148,6 +151,7 @@ impl Renderer {
                         descriptor_pool,
                         ambient_set_layout: ambient_pipeline.set_layout,
                         directional_set_layout: directional_pipeline.set_layout,
+                        floor_set_layout: floor_pipeline.set_layout,
                     },
                     &device,
                 )
@@ -214,6 +218,7 @@ impl Renderer {
             pending_camera_forward: vec![Some(Vec3::zeros()); max_frames_in_flight],
             ambient_pipeline,
             directional_pipeline,
+            floor_pipeline,
             screen_vbo,
             screen_vbo_memory,
         };
@@ -428,6 +433,16 @@ impl Renderer {
                 )?
                 .cast::<ambient::Ubo>();
 
+            let floor_ubo_mem = self
+                .device
+                .map_memory(
+                    frame.floor_ubo_memory,
+                    0,
+                    size_of::<floor::Ubo>() as vk::DeviceSize,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast::<floor::Ubo>();
+
             (*deferred_uniform_mem).model[..model_matrices.len()].copy_from_slice(&model_matrices);
 
             if let Some(view_projection) = self.pending_view_projection[self.current_frame_index] {
@@ -435,12 +450,30 @@ impl Renderer {
                 self.pending_view_projection[self.current_frame_index] = None;
             }
 
+            if let Some(view) = self.pending_view[self.current_frame_index] {
+                (*floor_ubo_mem).view = view;
+                self.pending_view[self.current_frame_index] = None;
+            }
+
+            if let Some(projection) = self.pending_projection[self.current_frame_index] {
+                (*floor_ubo_mem).projection = projection;
+                self.pending_projection[self.current_frame_index] = None;
+            }
+
             if let Some(view_projection) = render_package.view_projection {
                 (*deferred_uniform_mem).view_projection = view_projection;
             }
 
+            if let Some(view) = render_package.view {
+                (*floor_ubo_mem).view = view;
+            }
+            if let Some(projection) = render_package.projection {
+                (*floor_ubo_mem).projection = projection;
+            }
+
             self.device.unmap_memory(frame.deferred_ubo_memory);
             self.device.unmap_memory(frame.ambient_ubo_memory);
+            self.device.unmap_memory(frame.floor_ubo_memory);
 
             self.device.cmd_bind_descriptor_sets(
                 frame.render_cmd,
@@ -501,6 +534,26 @@ impl Renderer {
                 self.directional_pipeline.layout,
                 0,
                 &[frame.directional_set],
+                &[],
+            );
+
+            self.device.cmd_draw(frame.render_cmd, 4, 1, 0, 0);
+
+            self.device
+                .cmd_next_subpass(frame.render_cmd, vk::SubpassContents::INLINE);
+
+            self.device.cmd_bind_pipeline(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.floor_pipeline.handle,
+            );
+
+            self.device.cmd_bind_descriptor_sets(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.floor_pipeline.layout,
+                0,
+                &[frame.floor_set],
                 &[],
             );
 
@@ -569,6 +622,7 @@ impl Renderer {
             self.ambient_pipeline.destroy(&self.device.handle);
             self.deferred_pipeline.destroy(&self.device.handle);
             self.directional_pipeline.destroy(&self.device.handle);
+            self.floor_pipeline.destroy(&self.device.handle);
 
             self.render_pass.destroy(&self.device.handle);
 

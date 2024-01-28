@@ -1,6 +1,6 @@
 #version 450
 
-// This code was based on a solution from https://gist.github.com/bgolus/3a561077c86b5bfead0d6cc521097bae
+// This code is based on the solution from https://gist.github.com/bgolus/3a561077c86b5bfead0d6cc521097bae
 // Also, there is an article about this technique: https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8
 
 layout(location = 0) in vec2 v_frag_position;
