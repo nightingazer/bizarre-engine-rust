@@ -5,10 +5,14 @@ use std::{
 
 use anyhow::Result;
 use bizarre_events::observer::{EventBus, Observer};
-use bizarre_logger::{core_critical, core_debug, core_info};
+use bizarre_logger::{
+    core_critical, core_info,
+    global_loggers::{logging_thread_join, logging_thread_start},
+};
 use specs::WorldExt;
 
 use crate::{
+    app_builder::{AppBuilder, No},
     app_events::AppCloseRequestedEvent,
     debug_stats::DebugStats,
     layer::Layer,
@@ -18,16 +22,15 @@ use crate::{
 use bizarre_common::resources::{DeltaTime, RunningTime};
 
 pub struct App {
-    name: Box<str>,
-    event_bus: EventBus,
-    world: specs::World,
-    layers: Vec<Box<dyn Layer>>,
-    observer: AppObserver,
-    schedule: Schedule,
-    schedule_builder: ScheduleBuilder,
+    pub(crate) name: Box<str>,
+    pub(crate) event_bus: EventBus,
+    pub(crate) world: specs::World,
+    pub(crate) layers: Vec<Box<dyn Layer>>,
+    pub(crate) observer: AppObserver,
+    pub(crate) schedule: Schedule,
 }
 
-struct AppObserver {
+pub struct AppObserver {
     pub running: bool,
 }
 
@@ -53,7 +56,6 @@ impl App {
             layers: Vec::new(),
             observer: AppObserver { running: true },
             schedule: Schedule::default(),
-            schedule_builder: ScheduleBuilder::default(),
         }
     }
 
@@ -80,7 +82,6 @@ impl App {
         self.world.insert(RunningTime(Duration::from_secs(0)));
         self.world.insert(DebugStats::default());
 
-        self.schedule = self.schedule_builder.build();
         self.schedule.frame_dispatcher.setup(&mut self.world);
 
         while self.observer.running {
@@ -126,6 +127,8 @@ impl App {
         }
 
         self.destroy();
+
+        logging_thread_join();
     }
 
     fn destroy(&mut self) {
@@ -136,10 +139,7 @@ impl App {
         }
     }
 
-    pub fn add_layer<L: Layer + 'static>(&mut self, layer: L) -> Result<()> {
-        let mut boxed = Box::new(layer);
-        boxed.on_attach(&self.event_bus, &mut self.world, &mut self.schedule_builder)?;
-        self.layers.push(boxed);
-        Ok(())
+    pub fn builder() -> AppBuilder<No> {
+        AppBuilder::<No>::new()
     }
 }

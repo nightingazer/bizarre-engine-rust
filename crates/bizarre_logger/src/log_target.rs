@@ -8,7 +8,13 @@ pub enum LogTarget {
 }
 
 pub fn file_target(path: &str, file: Option<File>) -> LogTarget {
-    LogTarget::File(path.into(), None)
+    LogTarget::File(
+        path.into(),
+        match file {
+            Some(file) => Some(RefCell::new(file)),
+            _ => None,
+        },
+    )
 }
 
 impl PartialEq for LogTarget {

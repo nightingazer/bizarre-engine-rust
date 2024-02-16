@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     mem::{align_of, size_of, size_of_val},
 };
 
@@ -13,11 +13,7 @@ use crate::{
     mesh_loader::MeshHandle,
     vertex::Vertex,
     vulkan_shaders::{ambient, deferred, directional, floor},
-    vulkan_utils::{
-        buffer::create_buffer,
-        framebuffer::create_framebuffer,
-        pipeline::{ambient_pipeline, directional_pipeline},
-    },
+    vulkan_utils::{buffer::create_buffer, framebuffer::create_framebuffer},
 };
 
 use super::image::VulkanImage;
@@ -105,35 +101,10 @@ impl VulkanFrame {
             depth: 1,
         };
 
-        let depth_image = VulkanImage::new(
-            extent,
-            vk::Format::D32_SFLOAT,
-            vk::ImageAspectFlags::DEPTH,
-            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-            info.mem_props,
-            device,
-        )?;
+        let memory_props = info.mem_props;
 
-        let color_image = VulkanImage::new(
-            extent,
-            vk::Format::R16G16B16A16_SFLOAT,
-            vk::ImageAspectFlags::COLOR,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-            info.mem_props,
-            device,
-        )?;
-
-        let normals_image = VulkanImage::new(
-            extent,
-            vk::Format::R16G16B16A16_SFLOAT,
-            vk::ImageAspectFlags::COLOR,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-            info.mem_props,
-            device,
-        )?;
+        let (depth_image, color_image, normals_image) =
+            create_frame_images(extent, memory_props, device)?;
 
         let framebuffer_attachments = [
             info.present_image,
@@ -509,6 +480,41 @@ impl VulkanFrame {
         Ok(())
     }
 
+    pub fn recreate(
+        &mut self,
+        extent: vk::Extent2D,
+        mem_props: &vk::PhysicalDeviceMemoryProperties,
+        present_image: vk::ImageView,
+        render_pass: vk::RenderPass,
+        device: &ash::Device,
+    ) -> Result<()> {
+        self.destroy_images(device);
+
+        let extent_3d = vk::Extent3D {
+            depth: 1,
+            height: extent.height,
+            width: extent.width,
+        };
+
+        let (depth, color, normal) = create_frame_images(extent_3d, mem_props, device)?;
+
+        unsafe {
+            device.destroy_framebuffer(self.framebuffer, None);
+        }
+
+        let attachments = [present_image, depth.view, color.view, normal.view];
+
+        self.framebuffer = create_framebuffer(&attachments, extent, render_pass, device)?;
+
+        self.depth_image = depth;
+        self.color_image = color;
+        self.normals_image = normal;
+
+        self.update_sets_with_images(device);
+
+        Ok(())
+    }
+
     pub fn destroy(&mut self, cmd_pool: vk::CommandPool, device: &ash::Device) {
         unsafe {
             device.destroy_semaphore(self.image_available_semaphore, None);
@@ -564,15 +570,101 @@ impl VulkanFrame {
                 *buf = vk::Buffer::null();
             }
 
-            let mut images = [
-                &mut self.color_image,
-                &mut self.depth_image,
-                &mut self.normals_image,
-            ];
-
-            for image in images.iter_mut() {
-                image.destroy(device);
-            }
+            self.destroy_images(device);
         }
     }
+
+    fn destroy_images(&mut self, device: &ash::Device) {
+        let mut images = [
+            &mut self.color_image,
+            &mut self.depth_image,
+            &mut self.normals_image,
+        ];
+
+        for image in images.iter_mut() {
+            image.destroy(device);
+        }
+    }
+
+    fn update_sets_with_images(&mut self, device: &ash::Device) -> Result<()> {
+        let color_input_info = [vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(self.color_image.view)
+            .build()];
+
+        let normals_input_info = [vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(self.normals_image.view)
+            .build()];
+
+        let set_writes = [
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.ambient_set)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(&color_input_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.ambient_set)
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(&normals_input_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.directional_set)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(&color_input_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.directional_set)
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(&normals_input_info)
+                .build(),
+        ];
+
+        unsafe { device.update_descriptor_sets(&set_writes, &[]) };
+
+        Ok(())
+    }
+}
+
+fn create_frame_images(
+    extent: vk::Extent3D,
+    memory_props: &vk::PhysicalDeviceMemoryProperties,
+    device: &ash::Device,
+) -> Result<(VulkanImage, VulkanImage, VulkanImage), anyhow::Error> {
+    let depth_image = VulkanImage::new(
+        extent,
+        vk::Format::D32_SFLOAT,
+        vk::ImageAspectFlags::DEPTH,
+        vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        memory_props,
+        device,
+    )?;
+    let color_image = VulkanImage::new(
+        extent,
+        vk::Format::R16G16B16A16_SFLOAT,
+        vk::ImageAspectFlags::COLOR,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        memory_props,
+        device,
+    )?;
+    let normals_image = VulkanImage::new(
+        extent,
+        vk::Format::R16G16B16A16_SFLOAT,
+        vk::ImageAspectFlags::COLOR,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        memory_props,
+        device,
+    )?;
+    Ok((depth_image, color_image, normals_image))
 }

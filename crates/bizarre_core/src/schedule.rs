@@ -1,4 +1,7 @@
-use std::mem::swap;
+pub enum ScheduleType {
+    Frame,
+    Tick,
+}
 
 pub struct Schedule {
     // pub tick_dispatcher: specs::Dispatcher<'static, 'static>,

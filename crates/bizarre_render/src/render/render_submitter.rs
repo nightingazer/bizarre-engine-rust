@@ -1,11 +1,10 @@
-use std::{collections::HashSet, ops::Range};
+use std::collections::HashSet;
 
-use bizarre_logger::core_debug;
 use nalgebra_glm::{Mat4, Vec3};
 
 use crate::{
-    mesh_loader::{MeshHandle, MeshLoader},
-    render_components::{MeshComponent, TransformComponent},
+    mesh_loader::MeshHandle,
+    render_components::MeshComponent,
     render_math::{AmbientLight, DirectionalLight},
     render_package::{DrawSubmission, MeshUpload, RenderPackage},
 };

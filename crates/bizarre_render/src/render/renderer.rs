@@ -1,10 +1,11 @@
 use std::{f32, mem::size_of, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
 use ash::{
     extensions::khr,
     vk::{self, DeviceSize},
 };
+use bizarre_logger::core_debug;
 use nalgebra_glm::{Mat4, Vec3};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
@@ -58,6 +59,8 @@ pub struct Renderer {
 
     screen_vbo: vk::Buffer,
     screen_vbo_memory: vk::DeviceMemory,
+
+    memory_properties: vk::PhysicalDeviceMemoryProperties,
 }
 
 impl Renderer {
@@ -79,31 +82,13 @@ impl Renderer {
             height: window.inner_size().height,
         };
 
-        let (swapchain, swapchain_images) =
-            unsafe { VulkanSwapchain::new(&instance, &device, surface, &window_extent)? };
+        let swapchain = VulkanSwapchain::new(&instance, &device, surface, &window_extent)?;
+
+        let swapchain_images = swapchain.image_views.clone();
 
         let render_pass = VulkanRenderPass::new(swapchain.image_format, &window_extent, &device)?;
 
-        let has_mirror_transform = swapchain
-            .surface_capabilities
-            .supported_transforms
-            .contains(vk::SurfaceTransformFlagsKHR::HORIZONTAL_MIRROR);
-        let viewport = vk::Viewport {
-            width: window_extent.width as f32,
-            height: if has_mirror_transform {
-                window_extent.height as f32
-            } else {
-                -(window_extent.height as f32)
-            },
-            min_depth: 0.0,
-            max_depth: 1.0,
-            x: 0.0,
-            y: if has_mirror_transform {
-                0.0
-            } else {
-                window_extent.height as f32
-            },
-        };
+        let viewport = create_viewport(window_extent);
 
         let cmd_pool = {
             let create_info = vk::CommandPoolCreateInfo::builder()
@@ -221,21 +206,73 @@ impl Renderer {
             floor_pipeline,
             screen_vbo,
             screen_vbo_memory,
+            memory_properties: mem_props,
         };
 
         Ok(system)
     }
 
     pub fn render(&mut self, render_package: &RenderPackage) -> Result<()> {
-        let frame = &mut self.frames[self.current_frame_index];
-        let (present_index, _) = unsafe {
-            self.swapchain.swapchain_loader.acquire_next_image(
+        let image_available_semaphore = unsafe {
+            let create_info = vk::SemaphoreCreateInfo::default();
+
+            self.device
+                .create_semaphore(&create_info, None)
+                .map_err(|err| {
+                    anyhow!(
+                        "Render: Failed to create image available semaphore: {:?}",
+                        err
+                    )
+                })?
+        };
+
+        let present_index = unsafe {
+            let acquire_result = self.swapchain.swapchain_loader.acquire_next_image(
                 *self.swapchain,
                 u64::MAX,
-                frame.image_available_semaphore,
+                image_available_semaphore,
                 vk::Fence::null(),
-            )?
+            );
+
+            match acquire_result {
+                Ok((present_index, false)) => present_index,
+                Ok((_, true)) => {
+                    core_debug!("Recreating swapchain: suboptimal");
+                    unsafe {
+                        self.device
+                            .destroy_semaphore(image_available_semaphore, None);
+                    }
+                    self.recreate_swapchain();
+                    return Ok(());
+                }
+                Err(result) => match result {
+                    vk::Result::SUBOPTIMAL_KHR | vk::Result::ERROR_OUT_OF_DATE_KHR => {
+                        core_debug!("Recreating swapchain: out of date");
+                        unsafe {
+                            self.device
+                                .destroy_semaphore(image_available_semaphore, None);
+                        }
+                        self.recreate_swapchain();
+                        return Ok(());
+                    }
+                    _ => bail!(result),
+                },
+            }
         };
+
+        let present_index = present_index as usize;
+
+        unsafe {
+            self.device.wait_for_fences(
+                &[self.frames[present_index].render_cmd_fence],
+                true,
+                u64::MAX,
+            )?;
+            self.device
+                .destroy_semaphore(self.frames[present_index].image_available_semaphore, None);
+        }
+
+        self.frames[present_index].image_available_semaphore = image_available_semaphore;
 
         let clear_values = [
             vk::ClearValue {
@@ -261,77 +298,9 @@ impl Renderer {
             },
         ];
 
-        if !self.pending_mesh_uploads[self.current_frame_index].is_empty() {
-            let mesh_loader = get_mesh_loader();
-            let meshes = {
-                self.pending_mesh_uploads[self.current_frame_index]
-                    .drain(..)
-                    .map(|m| mesh_loader.get(m.mesh))
-                    .collect::<Result<Vec<_>>>()?
-            };
-            frame.upload_meshes(&meshes, &self.device)?;
-        }
+        self.update_frames(present_index, render_package)?;
 
-        if !render_package.mesh_uploads.is_empty() {
-            let mesh_loader = get_mesh_loader();
-            let meshes = {
-                render_package
-                    .mesh_uploads
-                    .iter()
-                    .map(|m| mesh_loader.get(m.mesh))
-                    .collect::<Result<Vec<_>>>()?
-            };
-
-            frame.upload_meshes(&meshes, &self.device)?;
-
-            for (i, pending) in self.pending_mesh_uploads.iter_mut().enumerate() {
-                if i == self.current_frame_index {
-                    continue;
-                }
-
-                pending.extend(render_package.mesh_uploads.clone());
-            }
-        }
-
-        if let Some(view_projection) = render_package.view_projection {
-            for (i, pending) in self.pending_view_projection.iter_mut().enumerate() {
-                if i == self.current_frame_index {
-                    continue;
-                }
-
-                *pending = Some(view_projection);
-            }
-
-            if let Some(view) = render_package.view {
-                for (i, pending) in self.pending_view.iter_mut().enumerate() {
-                    if i == self.current_frame_index {
-                        continue;
-                    }
-
-                    *pending = Some(view);
-                }
-            }
-
-            if let Some(projection) = render_package.projection {
-                for (i, pending) in self.pending_projection.iter_mut().enumerate() {
-                    if i == self.current_frame_index {
-                        continue;
-                    }
-
-                    *pending = Some(projection);
-                }
-            }
-
-            if let Some(camera_forward) = render_package.camera_forward {
-                for (i, pending) in self.pending_camera_forward.iter_mut().enumerate() {
-                    if i == self.current_frame_index {
-                        continue;
-                    }
-
-                    *pending = Some(camera_forward);
-                }
-            }
-        }
+        let frame = &mut self.frames[present_index];
 
         let cmd_begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
@@ -423,7 +392,7 @@ impl Renderer {
                 )?
                 .cast::<deferred::Ubo>();
 
-            let ambient_uniform_mem = self
+            let _ambient_uniform_mem = self
                 .device
                 .map_memory(
                     frame.ambient_ubo_memory,
@@ -445,19 +414,19 @@ impl Renderer {
 
             (*deferred_uniform_mem).model[..model_matrices.len()].copy_from_slice(&model_matrices);
 
-            if let Some(view_projection) = self.pending_view_projection[self.current_frame_index] {
+            if let Some(view_projection) = self.pending_view_projection[present_index] {
                 (*deferred_uniform_mem).view_projection = view_projection;
-                self.pending_view_projection[self.current_frame_index] = None;
+                self.pending_view_projection[present_index] = None;
             }
 
-            if let Some(view) = self.pending_view[self.current_frame_index] {
+            if let Some(view) = self.pending_view[present_index] {
                 (*floor_ubo_mem).view = view;
-                self.pending_view[self.current_frame_index] = None;
+                self.pending_view[present_index] = None;
             }
 
-            if let Some(projection) = self.pending_projection[self.current_frame_index] {
+            if let Some(projection) = self.pending_projection[present_index] {
                 (*floor_ubo_mem).projection = projection;
-                self.pending_projection[self.current_frame_index] = None;
+                self.pending_projection[present_index] = None;
             }
 
             if let Some(view_projection) = render_package.view_projection {
@@ -580,7 +549,7 @@ impl Renderer {
             )?;
 
             let swapchains = [self.swapchain.handle];
-            let indices = [present_index];
+            let indices = [present_index as u32];
             let wait_semaphores = [frame.render_finished_semaphore];
             let present_info = vk::PresentInfoKHR::builder()
                 .wait_semaphores(&wait_semaphores)
@@ -588,17 +557,141 @@ impl Renderer {
                 .image_indices(&indices)
                 .build();
 
-            self.swapchain
+            let present_result = self
+                .swapchain
                 .swapchain_loader
-                .queue_present(self.device.present_queue, &present_info)?;
-        }
+                .queue_present(self.device.present_queue, &present_info);
 
-        self.current_frame_index = (self.current_frame_index + 1) % self.max_frames_in_flight;
+            match present_result {
+                Ok(true) => {
+                    self.recreate_swapchain();
+                    Ok(())
+                }
+                Err(err) => match err {
+                    vk::Result::ERROR_OUT_OF_DATE_KHR | vk::Result::SUBOPTIMAL_KHR => {
+                        self.recreate_swapchain();
+                        Ok(())
+                    }
+                    _ => Err(anyhow!("Renderer: Failed to present an image: {err}")),
+                },
+                _ => Ok(()),
+            }
+        }
+    }
+
+    fn update_frames(
+        &mut self,
+        present_index: usize,
+        render_package: &RenderPackage,
+    ) -> Result<(), anyhow::Error> {
+        let frame = &mut self.frames[present_index];
+
+        if !self.pending_mesh_uploads[present_index].is_empty() {
+            let mesh_loader = get_mesh_loader();
+            let meshes = {
+                self.pending_mesh_uploads[present_index]
+                    .drain(..)
+                    .map(|m| mesh_loader.get(m.mesh))
+                    .collect::<Result<Vec<_>>>()?
+            };
+            frame.upload_meshes(&meshes, &self.device)?;
+        }
+        if !render_package.mesh_uploads.is_empty() {
+            let mesh_loader = get_mesh_loader();
+            let meshes = {
+                render_package
+                    .mesh_uploads
+                    .iter()
+                    .map(|m| mesh_loader.get(m.mesh))
+                    .collect::<Result<Vec<_>>>()?
+            };
+
+            frame.upload_meshes(&meshes, &self.device)?;
+
+            for (i, pending) in self.pending_mesh_uploads.iter_mut().enumerate() {
+                if i == present_index {
+                    continue;
+                }
+
+                pending.extend(render_package.mesh_uploads.clone());
+            }
+        }
+        Ok(
+            if let Some(view_projection) = render_package.view_projection {
+                for (i, pending) in self.pending_view_projection.iter_mut().enumerate() {
+                    if i == present_index {
+                        continue;
+                    }
+
+                    *pending = Some(view_projection);
+                }
+
+                if let Some(view) = render_package.view {
+                    for (i, pending) in self.pending_view.iter_mut().enumerate() {
+                        if i == present_index {
+                            continue;
+                        }
+
+                        *pending = Some(view);
+                    }
+                }
+
+                if let Some(projection) = render_package.projection {
+                    for (i, pending) in self.pending_projection.iter_mut().enumerate() {
+                        if i == present_index {
+                            continue;
+                        }
+
+                        *pending = Some(projection);
+                    }
+                }
+
+                if let Some(camera_forward) = render_package.camera_forward {
+                    for (i, pending) in self.pending_camera_forward.iter_mut().enumerate() {
+                        if i == present_index {
+                            continue;
+                        }
+
+                        *pending = Some(camera_forward);
+                    }
+                }
+            },
+        )
+    }
+
+    pub fn resize(&mut self, size: [u32; 2]) -> Result<()> {
+        self.surface_extent = vk::Extent2D {
+            width: size[0],
+            height: size[1],
+        };
+
+        self.viewport = create_viewport(self.surface_extent);
+
+        self.recreate_swapchain();
 
         Ok(())
     }
 
-    pub fn resize(&mut self, size: [u32; 2]) -> Result<()> {
+    fn recreate_swapchain(&mut self) -> Result<()> {
+        unsafe {
+            self.device.device_wait_idle();
+        }
+
+        self.swapchain
+            .recreate(&self.surface_extent, self.surface, &self.device)?;
+
+        self.swapchain_images = self.swapchain.get_image_views()?;
+
+        for (frame, image) in self.frames.iter_mut().zip(self.swapchain_images.clone()) {
+            frame.recreate(
+                self.surface_extent,
+                &self.memory_properties,
+                image,
+                *self.render_pass,
+                &self.device,
+            )?;
+        }
+
         Ok(())
     }
 
@@ -646,5 +739,16 @@ impl Renderer {
 
             self.instance.destroy_instance(None);
         }
+    }
+}
+
+fn create_viewport(window_extent: vk::Extent2D) -> vk::Viewport {
+    vk::Viewport {
+        width: window_extent.width as f32,
+        height: -(window_extent.height as f32),
+        min_depth: 0.0,
+        max_depth: 1.0,
+        x: 0.0,
+        y: window_extent.height as f32,
     }
 }

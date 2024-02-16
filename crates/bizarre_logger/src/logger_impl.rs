@@ -1,14 +1,9 @@
-use std::{
-    cell::RefCell,
-    fs::{File, OpenOptions},
-    io::Write,
-};
+use std::{cell::RefCell, fs::OpenOptions, io::Write};
 
 use anyhow::Result;
 
 use crate::{
     escape_sequence,
-    log_errors::LogError,
     log_level::LogLevel,
     log_target::{file_target, LogTarget},
     TerminalEscapeSequence, RESET,

@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    sync::{LazyLock, Once, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{LazyLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use anyhow::Result;
@@ -48,10 +48,10 @@ impl MeshLoader {
         let handles = meshes
             .into_iter()
             .map(|mesh| {
-                let handle = mesh.id.clone();
+                let handle = mesh.id;
                 let ptr = self.arena.construct(mesh)?;
                 self.map
-                    .insert(handle.clone(), unsafe { Box::from_raw(ptr) });
+                    .insert(handle, unsafe { Box::from_raw(ptr) });
                 Ok(handle)
             })
             .collect::<Result<Vec<_>>>()?;

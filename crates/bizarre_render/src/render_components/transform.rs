@@ -1,8 +1,7 @@
 use nalgebra_glm::{
-    quat_angle, quat_angle_axis, quat_axis, quat_euler_angles, quat_rotate_vec3, rotate, vec3,
-    vec4, vec4_to_vec3, Mat4, Quat, Vec3,
+    quat_angle, quat_angle_axis, quat_axis, quat_rotate_vec3, rotate, vec3, Mat4, Quat, Vec3,
 };
-use specs::{Component, RunNow, VecStorage};
+use specs::{Component, VecStorage};
 
 #[derive(Debug, Clone)]
 pub struct TransformComponent {

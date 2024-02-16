@@ -35,7 +35,7 @@ pub fn load_shader(path: &Path, shader_type: ShaderType) -> Result<Vec<u32>> {
     let cached_path = Path::new("cache/shaders/vulkan").join(format!("{filename}.spv"));
 
     let invalid_cache = if cached_path.is_file() {
-        let source_metadata = std::fs::metadata(&path)?;
+        let source_metadata = std::fs::metadata(path)?;
         let cached_metadata = std::fs::metadata(&cached_path)?;
 
         source_metadata.modified()? > cached_metadata.modified()?
@@ -57,7 +57,7 @@ pub fn load_shader(path: &Path, shader_type: ShaderType) -> Result<Vec<u32>> {
         }
 
         let mut cached_file = File::create(cached_path)?;
-        cached_file.write_all(&artifact.as_binary_u8())?;
+        cached_file.write_all(artifact.as_binary_u8())?;
         artifact.as_binary().to_vec()
     } else {
         let mut file = File::open(cached_path)?;

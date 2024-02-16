@@ -16,6 +16,7 @@ use bizarre_core::{
 use bizarre_events::observer;
 use bizarre_events::observer::EventBus;
 use bizarre_events::observer::Observer;
+use bizarre_logger::core_info;
 use bizarre_render::render_components::transform::TransformComponent;
 use bizarre_render::render_components::MeshComponent;
 use bizarre_render::render_systems::DrawMeshSystem;
@@ -23,21 +24,18 @@ use bizarre_render::render_systems::MeshManagementSystem;
 use bizarre_render::Renderer;
 use bizarre_render::{render_math::DirectionalLight, render_submitter::RenderSubmitter};
 use specs::Join;
-use winit::dpi::LogicalPosition;
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::platform::pump_events::PumpStatus;
 use winit::platform::scancode::PhysicalKeyExtScancode;
-use winit::window::CursorGrabMode;
 
 pub struct VisualLayer {
     event_loop: winit::event_loop::EventLoop<()>,
     window: Arc<winit::window::Window>,
-    renderer: Renderer,
+    renderer: Option<Renderer>,
 }
 
 impl VisualLayer {
     pub fn new() -> Result<Self> {
-        std::env::set_var("WINIT_UNIX_BACKEND", "x11");
         let event_loop = winit::event_loop::EventLoop::new()?;
         let window: winit::window::Window = winit::window::WindowBuilder::new()
             .with_title("Bizarre Engine")
@@ -46,19 +44,10 @@ impl VisualLayer {
 
         let window = Arc::new(window);
 
-        let renderer = Renderer::new(window.clone());
-        let renderer = match renderer {
-            Ok(r) => r,
-            Err(e) => {
-                println!("Failed to create renderer: {:?}", e);
-                return Err(e);
-            }
-        };
-
         Ok(Self {
             event_loop,
             window,
-            renderer,
+            renderer: None,
         })
     }
 }
@@ -88,7 +77,10 @@ impl Observer for VisualLayer {
 
 impl VisualLayer {
     fn handle_window_resize(&mut self, event: &WindowResized) {
+        core_info!("Visual layer: got resize event {:?}", event);
         self.renderer
+            .as_mut()
+            .unwrap()
             .resize([event.width as u32, event.height as u32])
             .expect("Failed to resize renderer");
     }
@@ -165,6 +157,13 @@ impl VisualLayer {
                     };
                     *loop_result = input_handler.process_mouse_scroll(delta);
                 }
+                w_event::WindowEvent::Resized(size) => {
+                    core_info!("event_loop: window got resized");
+                    event_bus.push_event(WindowResized {
+                        height: size.height as f32,
+                        width: size.width as f32,
+                    })
+                }
                 _ => (),
             }
         }
@@ -178,6 +177,15 @@ impl Layer for VisualLayer {
         world: &mut specs::World,
         schedule_builder: &mut ScheduleBuilder,
     ) -> Result<()> {
+        let renderer = Renderer::new(self.window.clone());
+        let renderer = match renderer {
+            Ok(r) => r,
+            Err(e) => {
+                bail!("Failed to create renderer: {:?}", e);
+            }
+        };
+        self.renderer = Some(renderer);
+
         event_bus.add_observer(self);
 
         let mut submitter = RenderSubmitter::new();
@@ -235,7 +243,11 @@ impl Layer for VisualLayer {
 
         let mut submitter = world.write_resource::<RenderSubmitter>();
         let render_package = submitter.finalize_submission();
-        let result = self.renderer.render(&render_package);
+        let result = self
+            .renderer
+            .as_mut()
+            .expect("There is no renderer. The Visual Layer was not initialized properly")
+            .render(&render_package);
 
         if let Err(e) = result {
             bail!("Failed to render frame: {e}");
@@ -245,6 +257,9 @@ impl Layer for VisualLayer {
     }
 
     fn on_detach(&mut self, event_bus: &EventBus, world: &mut specs::World) {
-        self.renderer.destroy();
+        self.renderer
+            .as_mut()
+            .expect("There is no renderer to destroy")
+            .destroy();
     }
 }

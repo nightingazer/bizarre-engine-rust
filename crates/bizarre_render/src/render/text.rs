@@ -1,12 +1,8 @@
 use std::sync::Arc;
 
 use nalgebra_glm::{vec2, Vec2, Vec3};
-use specs::rayon::iter::ParallelBridge;
 
-use crate::{
-    bitmap_font::BitmapFont,
-    vertex::{Vertex, Vertex2D},
-};
+use crate::{bitmap_font::BitmapFont, vertex::Vertex2D};
 
 pub enum TextAlignment {
     Left,

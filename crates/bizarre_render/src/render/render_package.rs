@@ -1,13 +1,6 @@
-use std::ops::Range;
-
 use nalgebra_glm::{Mat4, Vec3};
 
-use crate::{
-    mesh::Mesh,
-    mesh_loader::MeshHandle,
-    render_math::{AmbientLight, DirectionalLight},
-    vertex::ColorNormalVertex,
-};
+use crate::mesh_loader::MeshHandle;
 
 #[derive(Clone, Debug)]
 pub struct MeshDelete {

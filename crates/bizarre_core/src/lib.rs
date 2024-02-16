@@ -1,4 +1,5 @@
 pub mod app;
+pub mod app_builder;
 pub mod app_events;
 pub mod core_events;
 pub mod debug_stats;

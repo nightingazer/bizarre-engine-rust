@@ -9,14 +9,19 @@ macro_rules! escape_sequence {
 macro_rules! log_to_global {
     ($logger_name: expr, $log_level: expr, $msg: expr) => {{
         unsafe {
-            $crate::global_loggers::LOGGER_THREAD_SENDER.as_ref().unwrap().send(
-                $crate::logger_impl::LogMessage {
-                    logger_name: $logger_name,
-                    level: $log_level,
-                    msg: $msg.to_string(),
-                    shutdown: false,
-                },
-            ).expect("Failed to send log message to global logger");
+            $crate::global_loggers::LOGGER_THREAD_SENDER
+                .as_ref()
+                .expect("There is no logger thread sender. Make sure that loggin_thread_start() is called before the first attempt to write into a logger")
+                .lock()
+                .expect("Failed to lock the logger sender")
+                .send(
+                    $crate::logger_impl::LogMessage {
+                        logger_name: $logger_name,
+                        level: $log_level,
+                        msg: $msg.to_string(),
+                        shutdown: false,
+                    },
+                ).expect("Failed to send log message to global logger");
         }
     }};
     ($logger_name: expr, $log_level: expr, $msg:literal, $($args: expr),+) => {{

@@ -1,8 +1,8 @@
 use nalgebra_glm::{
-    look_at, ortho, perspective, quat_angle, quat_angle_axis, quat_euler_angles, quat_rotate_vec3,
-    vec3, Mat4, Quat, Vec2, Vec3,
+    look_at, ortho, perspective, quat_angle_axis, quat_euler_angles, quat_rotate_vec3, vec3, Mat4,
+    Quat, Vec2, Vec3,
 };
-use specs::{Component, FlaggedStorage, NullStorage, VecStorage};
+use specs::{Component, FlaggedStorage, NullStorage};
 
 #[derive(Debug, Clone)]
 pub enum CameraProjection {

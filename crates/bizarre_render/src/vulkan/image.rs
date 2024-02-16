@@ -2,7 +2,6 @@ use std::ops::{Deref, DerefMut};
 
 use anyhow::Result;
 use ash::vk;
-use bizarre_logger::core_debug;
 
 use crate::vulkan_utils::vulkan_memory::find_memory_type_index;
 

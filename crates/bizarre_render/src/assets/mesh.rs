@@ -31,14 +31,14 @@ pub fn load_meshes_from_obj(
 
     let (models, _) = tobj::load_obj(path, &load_options)?;
 
-    let mut meshes = Vec::<Mesh>::with_capacity(models.len());
+    let _meshes = Vec::<Mesh>::with_capacity(models.len());
 
-    let mut id = first_id;
+    let id = first_id;
 
     let meshses = models
         .iter()
         .enumerate()
-        .map(|(i, ref el)| {
+        .map(|(i, el)| {
             let (vertices, indices, bounding_box) = process_tobj_mesh(&el.mesh)?;
             let name = if let Some(names) = names {
                 names.get(i).unwrap_or(&el.name).clone()
@@ -65,7 +65,7 @@ fn process_tobj_mesh(mesh: &tobj::Mesh) -> Result<(Vec<Vertex>, Vec<u32>, Boundi
     let positions = mesh
         .positions
         .chunks(3)
-        .map(|c| Vec3::from_column_slice(c))
+        .map(Vec3::from_column_slice)
         .collect::<Vec<_>>();
     let vertex_count = positions.len();
 
@@ -74,7 +74,7 @@ fn process_tobj_mesh(mesh: &tobj::Mesh) -> Result<(Vec<Vertex>, Vec<u32>, Boundi
     } else {
         mesh.normals
             .chunks(3)
-            .map(|c| Vec3::from_column_slice(c))
+            .map(Vec3::from_column_slice)
             .collect()
     };
 
@@ -83,7 +83,7 @@ fn process_tobj_mesh(mesh: &tobj::Mesh) -> Result<(Vec<Vertex>, Vec<u32>, Boundi
     } else {
         mesh.texcoords
             .chunks(2)
-            .map(|c| Vec2::from_column_slice(c))
+            .map(Vec2::from_column_slice)
             .collect()
     };
 
@@ -92,7 +92,7 @@ fn process_tobj_mesh(mesh: &tobj::Mesh) -> Result<(Vec<Vertex>, Vec<u32>, Boundi
     } else {
         mesh.vertex_color
             .chunks(3)
-            .map(|c| Vec3::from_column_slice(c))
+            .map(Vec3::from_column_slice)
             .collect()
     };
 

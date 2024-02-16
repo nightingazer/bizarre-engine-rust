@@ -3,8 +3,6 @@ use std::ops::{Deref, DerefMut};
 use anyhow::Result;
 use ash::vk;
 
-use crate::vulkan_utils::framebuffer::create_framebuffer;
-
 pub struct VulkanRenderPass {
     pub handle: vk::RenderPass,
     pub output_attachment: vk::AttachmentDescription,
@@ -16,7 +14,7 @@ pub struct VulkanRenderPass {
 impl VulkanRenderPass {
     pub fn new(
         output_format: vk::Format,
-        extent: &vk::Extent2D,
+        _extent: &vk::Extent2D,
         device: &ash::Device,
     ) -> Result<Self> {
         let output_attachment = vk::AttachmentDescription::builder()

@@ -94,7 +94,7 @@ impl VulkanDevice {
 
         pdevices_map.sort_by(|a, b| a.1.cmp(&b.1).reverse());
 
-        if (pdevices_map.first().is_none() || pdevices_map.first().unwrap().1 <= 0) {
+        if pdevices_map.first().is_none() || pdevices_map.first().unwrap().1 <= 0 {
             bail!("Failed to find suitable physical device");
         }
 

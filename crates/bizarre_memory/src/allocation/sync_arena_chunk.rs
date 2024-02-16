@@ -1,5 +1,5 @@
 use std::sync::{
-    atomic::{AtomicPtr, AtomicUsize, Ordering},
+    atomic::{AtomicPtr, Ordering},
     Mutex, MutexGuard,
 };
 
@@ -20,14 +20,14 @@ impl StableAllocator for SyncArenaChunk {}
 
 impl SyncArenaChunk {
     pub fn lock_bump_ptr(&self) -> anyhow::Result<MutexGuard<'_, AtomicPtr<u8>>> {
-        let mut ptr_lock = self.ptr.lock().unwrap();
+        let ptr_lock = self.ptr.lock().unwrap();
         Ok(ptr_lock)
     }
 }
 
 impl RawAllocator for SyncArenaChunk {
     fn alloc_raw(&mut self, size: usize, align: usize) -> anyhow::Result<*mut u8> {
-        let mut ptr_lock = self.lock_bump_ptr()?;
+        let ptr_lock = self.lock_bump_ptr()?;
 
         debug_assert!(align > 0);
         debug_assert!(align.is_power_of_two());
@@ -70,7 +70,7 @@ impl ArenaChunk for SyncArenaChunk {
     }
 
     fn reset(&mut self) {
-        let mut ptr_lock = self.ptr.lock().unwrap();
+        let ptr_lock = self.ptr.lock().unwrap();
         let bump = self.end.load(std::sync::atomic::Ordering::SeqCst);
         ptr_lock.store(bump, std::sync::atomic::Ordering::SeqCst);
     }

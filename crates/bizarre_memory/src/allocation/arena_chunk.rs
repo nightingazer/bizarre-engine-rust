@@ -1,5 +1,3 @@
-use crate::allocation::allocation_error::AllocationError;
-
 use super::allocator::{RawAllocator, StableAllocator};
 
 pub trait ArenaChunk: RawAllocator + StableAllocator {

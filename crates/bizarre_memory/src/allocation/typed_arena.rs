@@ -2,10 +2,10 @@ use std::any::TypeId;
 
 use anyhow::Result;
 
-use crate::{allocation::allocation_error::AllocationError, Allocator};
+use crate::allocation::allocation_error::AllocationError;
 
 use super::{
-    allocator::{Constructor, RawAllocator, StableAllocator},
+    allocator::{Constructor, StableAllocator},
     arena_chunk::ArenaChunk,
     thread_local_arena_chunk::ThreadLocalArenaChunk,
 };

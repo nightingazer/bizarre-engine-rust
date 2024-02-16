@@ -6,15 +6,13 @@ use bizarre_core::{
     schedule::ScheduleBuilder,
 };
 
-use bizarre_events::observer::{self, EventBus, Observer};
-use bizarre_logger::{core_debug, core_warn};
+use bizarre_events::observer::{EventBus, Observer};
+use bizarre_logger::core_warn;
 use bizarre_render::{
-    render_components::{
-        free_camera::FreeCameraComponent, ActiveCamera, Camera, CameraComponent, CameraProjection,
-    },
+    render_components::{free_camera::FreeCameraComponent, ActiveCamera, Camera, CameraProjection},
     render_submitter::RenderSubmitter,
 };
-use nalgebra_glm::{quat_angle, quat_angle_axis, quat_axis, vec2, vec3, Quat, Vec2, Vec3};
+use nalgebra_glm::{vec3, Vec2};
 use specs::{Builder, Join, Read, ReadStorage, RunNow, System, WorldExt, Write, WriteStorage};
 
 struct CameraSystem {

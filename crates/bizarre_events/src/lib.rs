@@ -1,4 +1,4 @@
-#![feature(thin_box, unsize, result_option_inspect)]
+#![feature(thin_box, unsize)]
 
 pub mod event;
 pub mod observer;

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+<title>README.html</title>
+<meta http-equiv="Content-Type" content="application/xhtml+xml;charset=utf-8"/>
+<link rel="stylesheet" type="text/css" media="all" href="https://cdn.jsdelivr.net/npm/github-markdown-css/github-markdown.min.css"  />
+<link rel="stylesheet" type="text/css" media="all" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/styles/github.min.css"  /><meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'><style> body { box-sizing: border-box; max-width: 740px; width: 100%; margin: 40px auto; padding: 0 10px; } </style><script id='MathJax-script' async src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'></script><script src='https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/highlight.min.js'></script><script>document.addEventListener('DOMContentLoaded', () => { document.body.classList.add('markdown-body'); document.querySelectorAll('pre[lang] > code').forEach((code) => { code.classList.add(code.parentElement.lang); }); document.querySelectorAll('pre > code').forEach((code) => { hljs.highlightBlock(code); }); });</script>
+</head>
+
+<body>
+
+<h1>Bizarre Engine</h1>
+
+<p>My first attempt to make a game engine in Rust. It&rsquo;s will be definitely a very
+strange, pretty possibly obnoxious in some aspects, and overall bizarre piece of
+software.</p>
+
+<p>The sole purpose of that venture is to conceptualize principals of game engine
+building and maybe make something interesting along the way.</p>
+
+<p>I mostly trying to make everything from scratch where it possible, because
+reinventing the wheel is fun.</p>
+
+<p>As you can see the project is <strong>highly</strong> in WIP state both from concept and
+implementation perspective. Rest assured, we are working on it.</p>
+
+<h2>Rough road map</h2>
+
+<ul>
+<li class="github_checkbox"><input disabled="" type="checkbox" checked="checked"/> Logging</li>
+<li class="github_checkbox"><input disabled="" type="checkbox" checked="checked"/> Debug Assertions with clean shutdown</li>
+<li class="github_checkbox"><input disabled="" type="checkbox" checked="checked"/> Application System model <em>(layers?)</em></li>
+<li class="github_checkbox"><input disabled="" type="checkbox" checked="checked"/> Window creation</li>
+<li class="github_checkbox"><input disabled="" type="checkbox" checked="checked"/> Input handling</li>
+<li class="github_checkbox"><input disabled="" type="checkbox" checked="checked"/> Event system</li>
+<li class="github_checkbox"><input disabled="" type="checkbox" checked="checked"/> Rendering (Vulkan)</li>
+<li class="github_checkbox"><input disabled="" type="checkbox"/> Mutlithreading</li>
+<li class="github_checkbox"><input disabled="" type="checkbox" checked="checked"/> ECS</li>
+<li class="github_checkbox"><input disabled="" type="checkbox"/> Asset management</li>
+<li class="github_checkbox"><input disabled="" type="checkbox"/> Scene management and serialization</li>
+<li class="github_checkbox"><input disabled="" type="checkbox"/> Physics</li>
+<li class="github_checkbox"><input disabled="" type="checkbox"/> Audio</li>
+<li class="github_checkbox"><input disabled="" type="checkbox"/> Scripting</li>
+<li class="github_checkbox"><input disabled="" type="checkbox"/> Editor</li>
+</ul>
+
+
+<p>Somewhere in between there will be some of those:</p>
+
+<ul>
+<li class="github_checkbox"><input disabled="" type="checkbox"/> Custom user interface for in-engine and in-game use</li>
+<li class="github_checkbox"><input disabled="" type="checkbox"/> AI?
+<del>- [ ] DirectX support?</del><br/>
+<del>- [ ] Metal support?</del><br/>
+<del>- [ ] OpenGl???</del></li>
+</ul>
+
+
+<p>For forseable future I&rsquo;m not planning on adding support for DX, Metal or OpenGl,
+because Vulkan is pretty much cross-platform and on top of that it&rsquo;s supported
+on all the reasonably new GPUs</p>
+
+</body>
+</html>

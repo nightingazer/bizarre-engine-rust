@@ -1,6 +1,5 @@
 use nalgebra_glm::{
-    look_at, look_at_lh, look_at_rh, ortho, perspective, quat_angle_axis, quat_rotate_vec3,
-    rotate_vec3, Mat4, Quat, Vec3,
+    look_at, ortho, perspective, quat_angle_axis, quat_rotate_vec3, Mat4, Quat, Vec3,
 };
 use specs::{Component, VecStorage};
 
