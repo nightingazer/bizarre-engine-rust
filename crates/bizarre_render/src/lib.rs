@@ -1,4 +1,5 @@
 #![feature(lazy_cell)]
+#![feature(variant_count)]
 
 mod assets;
 mod render;

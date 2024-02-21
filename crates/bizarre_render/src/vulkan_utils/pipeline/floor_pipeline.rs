@@ -6,7 +6,7 @@ use ash::vk;
 use crate::{
     vulkan::pipeline::VulkanPipeline,
     vulkan_shaders::floor,
-    vulkan_utils::shader::{load_shader, ShaderType},
+    vulkan_utils::shader::{load_shader, ShaderStage},
 };
 
 pub fn create_floor_pipeline(
@@ -84,7 +84,7 @@ pub fn create_floor_pipeline(
     };
 
     let (vert_module, vert_stage) = {
-        let code = load_shader(Path::new("assets/shaders/floor.vert"), ShaderType::Vertex)?;
+        let code = load_shader(Path::new("assets/shaders/floor.vert"), ShaderStage::Vertex)?;
 
         let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
 
@@ -100,7 +100,10 @@ pub fn create_floor_pipeline(
     };
 
     let (frag_module, frag_stage) = {
-        let code = load_shader(Path::new("assets/shaders/floor.frag"), ShaderType::Fragment)?;
+        let code = load_shader(
+            Path::new("assets/shaders/floor.frag"),
+            ShaderStage::Fragment,
+        )?;
 
         let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
 

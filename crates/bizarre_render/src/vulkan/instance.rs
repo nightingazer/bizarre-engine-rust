@@ -19,12 +19,16 @@ pub struct VulkanInstance {
 }
 
 impl VulkanInstance {
-    pub unsafe fn new(window: Arc<winit::window::Window>) -> Result<Self> {
-        let entry = ash::Entry::load()?;
-        let instance = create_instance(window, &entry)?;
+    pub fn new(window: &winit::window::Window) -> Result<Self> {
+        let (entry, instance) = unsafe {
+            let entry = ash::Entry::load()?;
+            let instance = create_instance(window, &entry)?;
+            (entry, instance)
+        };
 
         #[cfg(feature = "vulkan_debug")]
-        let (debug_messenger, debug_utils_loader) = create_debug_messenger(&entry, &instance)?;
+        let (debug_messenger, debug_utils_loader) =
+            unsafe { create_debug_messenger(&entry, &instance)? };
 
         Ok(Self {
             instance,
@@ -35,6 +39,18 @@ impl VulkanInstance {
             #[cfg(feature = "vulkan_debug")]
             debug_utils_loader,
         })
+    }
+
+    pub fn destroy(&self) {
+        #[cfg(feature = "vulkan_debug")]
+        unsafe {
+            self.debug_utils_loader
+                .destroy_debug_utils_messenger(self.debug_messenger, None);
+        }
+
+        unsafe {
+            self.instance.destroy_instance(None);
+        }
     }
 }
 

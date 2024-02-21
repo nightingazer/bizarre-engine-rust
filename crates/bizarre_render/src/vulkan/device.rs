@@ -7,6 +7,8 @@ use anyhow::{bail, Result};
 use ash::{extensions::khr, vk};
 use bizarre_logger::core_info;
 
+use crate::material::pass::{MaterialPass, MaterialPassCreateInfo};
+
 use super::instance::VulkanInstance;
 
 pub struct VulkanDevice {
@@ -18,24 +20,26 @@ pub struct VulkanDevice {
 }
 
 impl VulkanDevice {
-    pub unsafe fn new(instance: &VulkanInstance, surface: vk::SurfaceKHR) -> Result<Self> {
-        let pdevices = instance
-            .enumerate_physical_devices()
-            .expect("Failed to find any physical device");
+    pub fn new(instance: &VulkanInstance, surface: vk::SurfaceKHR) -> Result<Self> {
+        let pdevices = unsafe {
+            instance
+                .enumerate_physical_devices()
+                .expect("Failed to find any physical device")
+        };
 
         let surface_loader = khr::Surface::new(&instance.entry, instance);
 
         let pdevice_props = {
             pdevices
                 .iter()
-                .map(|p| instance.get_physical_device_properties(*p))
+                .map(|p| unsafe { instance.get_physical_device_properties(*p) })
                 .collect::<Vec<_>>()
         };
 
         let pdevice_names = pdevice_props
             .iter()
             .map(|p| {
-                let name = CStr::from_ptr(p.device_name.as_ptr()).to_str()?.to_string();
+                let name = unsafe { CStr::from_ptr(p.device_name.as_ptr()).to_str()?.to_string() };
                 Ok(name)
             })
             .collect::<Result<Vec<_>>>()?;
@@ -49,7 +53,7 @@ impl VulkanDevice {
             .iter()
             .zip(pdevice_names)
             .zip(pdevice_props)
-            .map(|((p, n), props)| {
+            .map(|((p, n), props)| unsafe {
                 let queue_index = instance
                     .get_physical_device_queue_family_properties(*p)
                     .iter()
@@ -117,12 +121,17 @@ impl VulkanDevice {
             .enabled_extension_names(&device_extension_names_raw)
             .enabled_features(&pdevice_features);
 
-        let device = instance
-            .create_device(*pdevice, &device_create_info, None)
-            .expect("Failed to create a Vulkan Device");
+        let device = unsafe {
+            instance
+                .create_device(*pdevice, &device_create_info, None)
+                .expect("Failed to create a Vulkan Device")
+        };
 
-        let graphics_queue = device.get_device_queue(queue_family_index, 0);
-        let present_queue = device.get_device_queue(queue_family_index, 0);
+        let (graphics_queue, present_queue) = unsafe {
+            let graphics_queue = device.get_device_queue(queue_family_index, 0);
+            let present_queue = device.get_device_queue(queue_family_index, 0);
+            (graphics_queue, present_queue)
+        };
 
         Ok(Self {
             handle: device,
@@ -131,6 +140,12 @@ impl VulkanDevice {
             present_queue,
             queue_family_index,
         })
+    }
+
+    pub fn destroy(&self) {
+        unsafe {
+            self.destroy_device(None);
+        }
     }
 }
 

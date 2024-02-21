@@ -7,3 +7,5 @@ pub use ambient_pipeline::*;
 pub use deferred_pipeline::*;
 pub use directional_pipeline::*;
 pub use floor_pipeline::*;
+
+use crate::material::pipeline_features::PipelineFeatures;

@@ -7,7 +7,7 @@ use crate::{
     vertex::PositionVertex,
     vulkan::pipeline::VulkanPipeline,
     vulkan_shaders::ambient,
-    vulkan_utils::shader::{load_shader, ShaderType},
+    vulkan_utils::shader::{load_shader, ShaderStage},
 };
 
 pub fn create_ambient_light_pipeline(
@@ -90,7 +90,10 @@ pub fn create_ambient_light_pipeline(
     };
 
     let (vert_module, vert_stage) = {
-        let code = load_shader(Path::new("assets/shaders/ambient.vert"), ShaderType::Vertex)?;
+        let code = load_shader(
+            Path::new("assets/shaders/ambient.vert"),
+            ShaderStage::Vertex,
+        )?;
 
         let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
 
@@ -108,7 +111,7 @@ pub fn create_ambient_light_pipeline(
     let (frag_module, frag_stage) = {
         let code = load_shader(
             Path::new("assets/shaders/ambient.frag"),
-            ShaderType::Fragment,
+            ShaderStage::Fragment,
         )?;
 
         let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);

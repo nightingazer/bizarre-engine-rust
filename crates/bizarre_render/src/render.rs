@@ -1,6 +1,6 @@
 pub mod bitmap_font;
-// pub mod batch;
 pub mod cube_map;
+pub mod global_context;
 pub mod render_math;
 pub mod render_package;
 pub mod render_submitter;

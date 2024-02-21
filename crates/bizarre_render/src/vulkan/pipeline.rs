@@ -1,5 +1,7 @@
 use ash::vk;
 
+use crate::global_context::VULKAN_GLOBAL_CONTEXT;
+
 pub struct VulkanPipeline {
     pub handle: vk::Pipeline,
     pub layout: vk::PipelineLayout,
@@ -7,8 +9,9 @@ pub struct VulkanPipeline {
 }
 
 impl VulkanPipeline {
-    pub fn destroy(&mut self, device: &ash::Device) {
+    pub fn destroy(&mut self) {
         unsafe {
+            let device = VULKAN_GLOBAL_CONTEXT.device();
             device.destroy_pipeline_layout(self.layout, None);
             self.layout = vk::PipelineLayout::null();
             device.destroy_descriptor_set_layout(self.set_layout, None);

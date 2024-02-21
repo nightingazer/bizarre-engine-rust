@@ -9,6 +9,7 @@ use ash::{util::Align, vk};
 use nalgebra_glm::{vec3, Mat4};
 
 use crate::{
+    global_context::VULKAN_GLOBAL_CONTEXT,
     mesh::Mesh,
     mesh_loader::MeshHandle,
     vertex::Vertex,
@@ -401,7 +402,8 @@ impl VulkanFrame {
         Ok(vulkan_frame)
     }
 
-    pub fn upload_meshes(&mut self, meshes: &[*const Mesh], device: &ash::Device) -> Result<()> {
+    pub fn upload_meshes(&mut self, meshes: &[*const Mesh]) -> Result<()> {
+        let device = VULKAN_GLOBAL_CONTEXT.device();
         let (meshes, vbo_len, ibo_len) = meshes
             .iter()
             .map(|m| unsafe { &**m })
@@ -486,8 +488,8 @@ impl VulkanFrame {
         mem_props: &vk::PhysicalDeviceMemoryProperties,
         present_image: vk::ImageView,
         render_pass: vk::RenderPass,
-        device: &ash::Device,
     ) -> Result<()> {
+        let device = VULKAN_GLOBAL_CONTEXT.device();
         self.destroy_images(device);
 
         let extent_3d = vk::Extent3D {

@@ -3,6 +3,8 @@ use std::ops::{Deref, DerefMut};
 use anyhow::{bail, Result};
 use ash::{extensions::khr, vk};
 
+use crate::global_context::VULKAN_GLOBAL_CONTEXT;
+
 use super::{device::VulkanDevice, instance::VulkanInstance};
 
 pub struct VulkanSwapchain {
@@ -78,13 +80,10 @@ impl VulkanSwapchain {
         })
     }
 
-    pub fn recreate(
-        &mut self,
-        extent: &vk::Extent2D,
-        surface: vk::SurfaceKHR,
-        device: &VulkanDevice,
-    ) -> Result<()> {
-        self.destroy(device);
+    pub fn recreate(&mut self, extent: &vk::Extent2D, surface: vk::SurfaceKHR) -> Result<()> {
+        self.destroy();
+
+        let device = VULKAN_GLOBAL_CONTEXT.device();
 
         let (surface_capabilities, present_modes) = unsafe {
             let surface_capabilities = self
@@ -121,7 +120,7 @@ impl VulkanSwapchain {
         Ok(self.image_views.clone())
     }
 
-    pub fn destroy(&mut self, device: &ash::Device) -> Result<()> {
+    pub fn destroy(&mut self) -> Result<()> {
         #[cfg(debug_assertions)]
         {
             if self.handle == vk::SwapchainKHR::null() {
@@ -140,6 +139,8 @@ impl VulkanSwapchain {
                 bail!("Trying to destroy swapchain image views but some of them are null!")
             }
         }
+
+        let device = VULKAN_GLOBAL_CONTEXT.device();
 
         unsafe {
             self.image_views.iter_mut().for_each(|image| {

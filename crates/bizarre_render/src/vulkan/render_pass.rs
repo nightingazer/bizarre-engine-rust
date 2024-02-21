@@ -108,7 +108,7 @@ impl VulkanRenderPass {
 
         let floor_subpass = vk::SubpassDescription::builder()
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-            .color_attachments(&[output_attachment_ref])
+            .color_attachments(&lighting_attachments)
             .depth_stencil_attachment(&depth_attachment_ref)
             .build();
 

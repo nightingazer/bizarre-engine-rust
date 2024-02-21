@@ -7,7 +7,7 @@ use crate::{
     vertex::PositionVertex,
     vulkan::pipeline::VulkanPipeline,
     vulkan_shaders::directional,
-    vulkan_utils::shader::{load_shader, ShaderType},
+    vulkan_utils::shader::{load_shader, ShaderStage},
 };
 
 pub fn create_directional_pipeline(
@@ -92,7 +92,7 @@ pub fn create_directional_pipeline(
     let (vert_module, vert_stage) = {
         let code = load_shader(
             Path::new("assets/shaders/directional.vert"),
-            ShaderType::Vertex,
+            ShaderStage::Vertex,
         )?;
 
         let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
@@ -111,7 +111,7 @@ pub fn create_directional_pipeline(
     let (frag_module, frag_stage) = {
         let code = load_shader(
             Path::new("assets/shaders/directional.frag"),
-            ShaderType::Fragment,
+            ShaderStage::Fragment,
         )?;
 
         let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);

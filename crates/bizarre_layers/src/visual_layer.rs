@@ -17,6 +17,7 @@ use bizarre_events::observer;
 use bizarre_events::observer::EventBus;
 use bizarre_events::observer::Observer;
 use bizarre_logger::core_info;
+use bizarre_render::global_context::init_vulkan_global_context;
 use bizarre_render::render_components::transform::TransformComponent;
 use bizarre_render::render_components::MeshComponent;
 use bizarre_render::render_systems::DrawMeshSystem;
@@ -30,7 +31,7 @@ use winit::platform::scancode::PhysicalKeyExtScancode;
 
 pub struct VisualLayer {
     event_loop: winit::event_loop::EventLoop<()>,
-    window: Arc<winit::window::Window>,
+    window: winit::window::Window,
     renderer: Option<Renderer>,
 }
 
@@ -41,8 +42,6 @@ impl VisualLayer {
             .with_title("Bizarre Engine")
             .build(&event_loop)
             .unwrap();
-
-        let window = Arc::new(window);
 
         Ok(Self {
             event_loop,
@@ -77,7 +76,6 @@ impl Observer for VisualLayer {
 
 impl VisualLayer {
     fn handle_window_resize(&mut self, event: &WindowResized) {
-        core_info!("Visual layer: got resize event {:?}", event);
         self.renderer
             .as_mut()
             .unwrap()
@@ -177,7 +175,8 @@ impl Layer for VisualLayer {
         world: &mut specs::World,
         schedule_builder: &mut ScheduleBuilder,
     ) -> Result<()> {
-        let renderer = Renderer::new(self.window.clone());
+        init_vulkan_global_context(&self.window)?;
+        let renderer = Renderer::new(&self.window);
         let renderer = match renderer {
             Ok(r) => r,
             Err(e) => {

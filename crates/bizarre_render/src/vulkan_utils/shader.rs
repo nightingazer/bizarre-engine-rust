@@ -7,23 +7,23 @@ use std::{
 use anyhow::{bail, Result};
 use bizarre_logger::core_info;
 
-pub enum ShaderType {
+pub enum ShaderStage {
     Vertex,
     Fragment,
     Compute,
 }
 
-impl From<ShaderType> for shaderc::ShaderKind {
-    fn from(shader_type: ShaderType) -> Self {
+impl From<ShaderStage> for shaderc::ShaderKind {
+    fn from(shader_type: ShaderStage) -> Self {
         match shader_type {
-            ShaderType::Vertex => shaderc::ShaderKind::Vertex,
-            ShaderType::Fragment => shaderc::ShaderKind::Fragment,
-            ShaderType::Compute => shaderc::ShaderKind::Compute,
+            ShaderStage::Vertex => shaderc::ShaderKind::Vertex,
+            ShaderStage::Fragment => shaderc::ShaderKind::Fragment,
+            ShaderStage::Compute => shaderc::ShaderKind::Compute,
         }
     }
 }
 
-pub fn load_shader(path: &Path, shader_type: ShaderType) -> Result<Vec<u32>> {
+pub fn load_shader(path: &Path, shader_type: ShaderStage) -> Result<Vec<u32>> {
     if !path.is_file() {
         bail!(
             "Could not open shader file '{}': Not a file",
@@ -70,7 +70,7 @@ pub fn load_shader(path: &Path, shader_type: ShaderType) -> Result<Vec<u32>> {
 
 pub fn compile_shader<S>(
     stream: &mut S,
-    shader_type: ShaderType,
+    shader_type: ShaderStage,
     filename: &str,
 ) -> Result<shaderc::CompilationArtifact>
 where

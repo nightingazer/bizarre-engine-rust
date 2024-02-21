@@ -10,7 +10,7 @@ use raw_window_handle::HasRawDisplayHandle;
 use super::debug_utils::debug_messenger_create_info;
 
 pub unsafe fn create_instance(
-    window: Arc<winit::window::Window>,
+    window: &winit::window::Window,
     entry: &ash::Entry,
 ) -> Result<ash::Instance> {
     let app_name = CStr::from_bytes_with_nul_unchecked(b"Bizarre Engine App\0");
