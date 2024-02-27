@@ -12,14 +12,14 @@ use crate::{
     global_context::VULKAN_GLOBAL_CONTEXT,
     mesh::Mesh,
     mesh_loader::MeshHandle,
-    vertex::Vertex,
+    vertex::MeshVertex,
     vulkan_shaders::{ambient, deferred, directional, floor},
     vulkan_utils::{buffer::create_buffer, framebuffer::create_framebuffer},
 };
 
 use super::image::VulkanImage;
 
-const VBO_SIZE: usize = 10000 * size_of::<Vertex>();
+const VBO_SIZE: usize = 10000 * size_of::<MeshVertex>();
 const IBO_SIZE: usize = 100000 * size_of::<u32>();
 const MODEL_LEN: usize = 100;
 
@@ -72,14 +72,13 @@ pub struct VulkanFrame {
     pub normals_image: VulkanImage,
 }
 
-pub struct VulkanFrameInfo<'a> {
+pub struct VulkanFrameInfo {
     pub present_image: vk::ImageView,
     pub render_pass: vk::RenderPass,
     pub extent: vk::Extent2D,
     pub image_index: u32,
     pub cmd_pool: vk::CommandPool,
     pub descriptor_pool: vk::DescriptorPool,
-    pub mem_props: &'a vk::PhysicalDeviceMemoryProperties,
     pub deferred_set_layout: vk::DescriptorSetLayout,
     pub ambient_set_layout: vk::DescriptorSetLayout,
     pub directional_set_layout: vk::DescriptorSetLayout,
@@ -102,10 +101,7 @@ impl VulkanFrame {
             depth: 1,
         };
 
-        let memory_props = info.mem_props;
-
-        let (depth_image, color_image, normals_image) =
-            create_frame_images(extent, memory_props, device)?;
+        let (depth_image, color_image, normals_image) = create_frame_images(extent)?;
 
         let framebuffer_attachments = [
             info.present_image,
@@ -113,12 +109,8 @@ impl VulkanFrame {
             color_image.view,
             normals_image.view,
         ];
-        let framebuffer = create_framebuffer(
-            &framebuffer_attachments,
-            info.extent,
-            info.render_pass,
-            device,
-        )?;
+        let framebuffer =
+            create_framebuffer(&framebuffer_attachments, info.extent, info.render_pass)?;
 
         let cmd_allocation_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(info.cmd_pool)
@@ -138,24 +130,18 @@ impl VulkanFrame {
             VBO_SIZE,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            info.mem_props,
-            device,
         )?;
 
         let (mesh_ibo, mesh_ibo_memory) = create_buffer(
             IBO_SIZE,
             vk::BufferUsageFlags::INDEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            info.mem_props,
-            device,
         )?;
 
         let (deferred_ubo, deferred_ubo_memory) = create_buffer(
             size_of::<deferred::Ubo>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            info.mem_props,
-            device,
         )?;
 
         unsafe {
@@ -180,8 +166,6 @@ impl VulkanFrame {
             size_of::<ambient::Ubo>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            info.mem_props,
-            device,
         )?;
 
         unsafe {
@@ -205,8 +189,6 @@ impl VulkanFrame {
             size_of::<directional::Ubo>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            info.mem_props,
-            device,
         )?;
 
         unsafe {
@@ -232,8 +214,6 @@ impl VulkanFrame {
             std::mem::size_of::<floor::Ubo>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            info.mem_props,
-            device,
         )?;
 
         unsafe {
@@ -418,7 +398,7 @@ impl VulkanFrame {
                 },
             );
 
-        if (self.mesh_vbo_offset + vbo_len) * size_of::<Vertex>() > VBO_SIZE {
+        if (self.mesh_vbo_offset + vbo_len) * size_of::<MeshVertex>() > VBO_SIZE {
             bail!("Frame VBO overflow");
         }
 
@@ -448,7 +428,7 @@ impl VulkanFrame {
         unsafe {
             let vbo_ptr = device.map_memory(
                 self.mesh_vbo_memory,
-                self.mesh_vbo_offset as u64 * size_of::<Vertex>() as u64,
+                self.mesh_vbo_offset as u64 * size_of::<MeshVertex>() as u64,
                 size_of_val(&vbo_data) as u64,
                 vk::MemoryMapFlags::empty(),
             )?;
@@ -460,15 +440,15 @@ impl VulkanFrame {
                 vk::MemoryMapFlags::empty(),
             )?;
 
-            let mut vbo_align = Align::<Vertex>::new(
+            let mut vbo_align = Align::<MeshVertex>::new(
                 vbo_ptr,
-                align_of::<Vertex>() as u64,
-                (size_of::<Vertex>() * vbo_data.len()) as u64,
+                align_of::<MeshVertex>() as u64,
+                (size_of::<MeshVertex>() * vbo_data.len()) as u64,
             );
 
             let mut ibo_align = Align::<u32>::new(
                 ibo_ptr,
-                align_of::<Vertex>() as u64,
+                align_of::<MeshVertex>() as u64,
                 (size_of::<u32>() * ibo_data.len()) as u64,
             );
 
@@ -485,11 +465,11 @@ impl VulkanFrame {
     pub fn recreate(
         &mut self,
         extent: vk::Extent2D,
-        mem_props: &vk::PhysicalDeviceMemoryProperties,
         present_image: vk::ImageView,
         render_pass: vk::RenderPass,
     ) -> Result<()> {
         let device = VULKAN_GLOBAL_CONTEXT.device();
+
         self.destroy_images(device);
 
         let extent_3d = vk::Extent3D {
@@ -498,7 +478,7 @@ impl VulkanFrame {
             width: extent.width,
         };
 
-        let (depth, color, normal) = create_frame_images(extent_3d, mem_props, device)?;
+        let (depth, color, normal) = create_frame_images(extent_3d)?;
 
         unsafe {
             device.destroy_framebuffer(self.framebuffer, None);
@@ -506,13 +486,13 @@ impl VulkanFrame {
 
         let attachments = [present_image, depth.view, color.view, normal.view];
 
-        self.framebuffer = create_framebuffer(&attachments, extent, render_pass, device)?;
+        self.framebuffer = create_framebuffer(&attachments, extent, render_pass)?;
 
         self.depth_image = depth;
         self.color_image = color;
         self.normals_image = normal;
 
-        self.update_sets_with_images(device);
+        self.update_sets_with_images();
 
         Ok(())
     }
@@ -588,7 +568,7 @@ impl VulkanFrame {
         }
     }
 
-    fn update_sets_with_images(&mut self, device: &ash::Device) -> Result<()> {
+    fn update_sets_with_images(&mut self) -> Result<()> {
         let color_input_info = [vk::DescriptorImageInfo::builder()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view(self.color_image.view)
@@ -630,7 +610,11 @@ impl VulkanFrame {
                 .build(),
         ];
 
-        unsafe { device.update_descriptor_sets(&set_writes, &[]) };
+        unsafe {
+            VULKAN_GLOBAL_CONTEXT
+                .device()
+                .update_descriptor_sets(&set_writes, &[])
+        };
 
         Ok(())
     }
@@ -638,8 +622,6 @@ impl VulkanFrame {
 
 fn create_frame_images(
     extent: vk::Extent3D,
-    memory_props: &vk::PhysicalDeviceMemoryProperties,
-    device: &ash::Device,
 ) -> Result<(VulkanImage, VulkanImage, VulkanImage), anyhow::Error> {
     let depth_image = VulkanImage::new(
         extent,
@@ -647,8 +629,6 @@ fn create_frame_images(
         vk::ImageAspectFlags::DEPTH,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        memory_props,
-        device,
     )?;
     let color_image = VulkanImage::new(
         extent,
@@ -656,8 +636,6 @@ fn create_frame_images(
         vk::ImageAspectFlags::COLOR,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        memory_props,
-        device,
     )?;
     let normals_image = VulkanImage::new(
         extent,
@@ -665,8 +643,6 @@ fn create_frame_images(
         vk::ImageAspectFlags::COLOR,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        memory_props,
-        device,
     )?;
     Ok((depth_image, color_image, normals_image))
 }

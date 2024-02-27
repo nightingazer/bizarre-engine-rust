@@ -4,9 +4,10 @@ use ash::vk;
 
 use crate::vulkan_utils::shader::ShaderStage;
 
-use super::{binding::Binding, pipeline_features::PipelineFeatures};
+use super::{binding::MaterialBinding, pipeline_features::PipelineFeatures};
 
 #[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MaterialPassType {
     Geometry,
     Lighting,
@@ -21,12 +22,12 @@ pub struct MaterialPassStage {
 pub struct MaterialPass {
     pub pipeline: vk::Pipeline,
     pub set_layout: vk::DescriptorSetLayout,
-    pub bindings: Box<[Binding]>,
+    pub bindings: Box<[MaterialBinding]>,
 }
 
 pub struct MaterialPassCreateInfo<'a> {
     pub stages: MaterialPassStage,
     pub pipeline_features: PipelineFeatures,
-    pub bindings: &'a Vec<Binding>,
+    pub bindings: &'a Vec<MaterialBinding>,
     pub pass_type: MaterialPassType,
 }

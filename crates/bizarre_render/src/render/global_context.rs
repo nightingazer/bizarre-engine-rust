@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use ash::vk;
 use bizarre_logger::{core_critical, core_warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use winit::{
@@ -17,9 +18,12 @@ use crate::{
     vulkan_utils::instance::create_instance,
 };
 
+pub static VULKAN_GLOBAL_CONTEXT: VulkanGlobalContext = VulkanGlobalContext::new();
+
 pub struct VulkanContext {
     instance: VulkanInstance,
     device: VulkanDevice,
+    physical_memory_properties: vk::PhysicalDeviceMemoryProperties,
 }
 
 pub struct VulkanGlobalContext {
@@ -49,6 +53,14 @@ impl VulkanGlobalContext {
             .instance
     }
 
+    pub fn memory_properties(&self) -> &vk::PhysicalDeviceMemoryProperties {
+        &self
+            .context
+            .get()
+            .expect("Trying to get access to Vulkan global context before it was initialized!")
+            .physical_memory_properties
+    }
+
     pub fn destroy(&self) {
         let context = self
             .context
@@ -58,8 +70,6 @@ impl VulkanGlobalContext {
         context.device.destroy();
     }
 }
-
-pub static VULKAN_GLOBAL_CONTEXT: VulkanGlobalContext = VulkanGlobalContext::new();
 
 pub fn init_vulkan_global_context(window: &winit::window::Window) -> Result<()> {
     #[cfg(debug_assertions)]
@@ -94,5 +104,12 @@ fn create_global_context(window: &winit::window::Window) -> Result<VulkanContext
     };
     let device = VulkanDevice::new(&instance, surface)?;
 
-    Ok(VulkanContext { instance, device })
+    let physical_memory_properties =
+        unsafe { instance.get_physical_device_memory_properties(device.physical_device) };
+
+    Ok(VulkanContext {
+        instance,
+        device,
+        physical_memory_properties,
+    })
 }

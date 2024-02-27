@@ -4,7 +4,8 @@ use anyhow::Result;
 use ash::vk;
 
 use crate::{
-    vertex::PositionVertex,
+    global_context::VULKAN_GLOBAL_CONTEXT,
+    vertex::{PositionVertex, Vertex},
     vulkan::pipeline::VulkanPipeline,
     vulkan_shaders::directional,
     vulkan_utils::shader::{load_shader, ShaderStage},
@@ -13,7 +14,6 @@ use crate::{
 pub fn create_directional_pipeline(
     viewport: &vk::Viewport,
     render_pass: vk::RenderPass,
-    device: &ash::Device,
 ) -> Result<VulkanPipeline> {
     let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
 
@@ -76,6 +76,8 @@ pub fn create_directional_pipeline(
     let color_blend_info = vk::PipelineColorBlendStateCreateInfo::builder()
         .logic_op_enable(false)
         .attachments(&color_blend_attachments);
+
+    let device = VULKAN_GLOBAL_CONTEXT.device();
 
     let set_layout = {
         let set_bindings = directional::descriptor_set_bindings();

@@ -1,11 +1,14 @@
 use ash::vk;
 
+use crate::global_context::VULKAN_GLOBAL_CONTEXT;
+
 pub fn find_memory_type_index(
     memory_req: &vk::MemoryRequirements,
-    memory_prop: &vk::PhysicalDeviceMemoryProperties,
     flags: vk::MemoryPropertyFlags,
 ) -> Option<u32> {
-    memory_prop.memory_types[..memory_prop.memory_type_count as _]
+    let memory_props = VULKAN_GLOBAL_CONTEXT.memory_properties();
+
+    memory_props.memory_types[..memory_props.memory_type_count as _]
         .iter()
         .enumerate()
         .find(|(i, memory_type)| {

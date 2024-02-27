@@ -5,8 +5,10 @@ use std::{
 };
 
 use anyhow::{bail, Result};
+use ash::vk;
 use bizarre_logger::core_info;
 
+#[derive(Clone, Copy, Debug)]
 pub enum ShaderStage {
     Vertex,
     Fragment,
@@ -19,6 +21,16 @@ impl From<ShaderStage> for shaderc::ShaderKind {
             ShaderStage::Vertex => shaderc::ShaderKind::Vertex,
             ShaderStage::Fragment => shaderc::ShaderKind::Fragment,
             ShaderStage::Compute => shaderc::ShaderKind::Compute,
+        }
+    }
+}
+
+impl From<ShaderStage> for vk::ShaderStageFlags {
+    fn from(value: ShaderStage) -> Self {
+        match value {
+            ShaderStage::Vertex => vk::ShaderStageFlags::VERTEX,
+            ShaderStage::Fragment => vk::ShaderStageFlags::FRAGMENT,
+            ShaderStage::Compute => vk::ShaderStageFlags::COMPUTE,
         }
     }
 }

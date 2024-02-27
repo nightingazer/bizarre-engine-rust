@@ -1,7 +1,7 @@
 use anyhow::Result;
 use nalgebra_glm::{Vec2, Vec3};
 
-use crate::{mesh_loader::MeshHandle, vertex::Vertex};
+use crate::{mesh_loader::MeshHandle, vertex::MeshVertex};
 
 #[derive(Debug, Clone)]
 pub struct BoundingBox {
@@ -13,7 +13,7 @@ pub struct BoundingBox {
 pub struct Mesh {
     pub id: MeshHandle,
     pub name: String,
-    pub vertices: Vec<Vertex>,
+    pub vertices: Vec<MeshVertex>,
     pub indices: Vec<u32>,
     pub bounding_box: BoundingBox,
 }
@@ -60,7 +60,7 @@ pub fn load_meshes_from_obj(
     Ok(meshses)
 }
 
-fn process_tobj_mesh(mesh: &tobj::Mesh) -> Result<(Vec<Vertex>, Vec<u32>, BoundingBox)> {
+fn process_tobj_mesh(mesh: &tobj::Mesh) -> Result<(Vec<MeshVertex>, Vec<u32>, BoundingBox)> {
     let indices = &mesh.indices;
     let positions = mesh
         .positions
@@ -114,7 +114,7 @@ fn process_tobj_mesh(mesh: &tobj::Mesh) -> Result<(Vec<Vertex>, Vec<u32>, Boundi
         max.y = max.y.max(position.y);
         max.z = max.z.max(position.z);
 
-        vertices.push(Vertex {
+        vertices.push(MeshVertex {
             position: *position,
             normal: *normal,
             uv: *texcoord,

@@ -4,7 +4,8 @@ use anyhow::Result;
 use ash::vk;
 
 use crate::{
-    vertex::PositionVertex,
+    global_context::VULKAN_GLOBAL_CONTEXT,
+    vertex::{PositionVertex, Vertex},
     vulkan::pipeline::VulkanPipeline,
     vulkan_shaders::ambient,
     vulkan_utils::shader::{load_shader, ShaderStage},
@@ -13,8 +14,9 @@ use crate::{
 pub fn create_ambient_light_pipeline(
     viewport: &vk::Viewport,
     render_pass: vk::RenderPass,
-    device: &ash::Device,
 ) -> Result<VulkanPipeline> {
+    let device = VULKAN_GLOBAL_CONTEXT.device();
+
     let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
 
     let dynamic_state_info =

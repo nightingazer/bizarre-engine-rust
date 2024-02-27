@@ -5,10 +5,7 @@ use std::{
 
 use anyhow::Result;
 use bizarre_events::observer::{EventBus, Observer};
-use bizarre_logger::{
-    core_critical, core_info,
-    global_loggers::{logging_thread_join, logging_thread_start},
-};
+use bizarre_logger::{core_critical, core_info, global_loggers::logging_thread_join};
 use specs::WorldExt;
 
 use crate::{

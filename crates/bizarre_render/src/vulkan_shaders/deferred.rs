@@ -1,6 +1,11 @@
 use ash::vk;
 use nalgebra_glm::Mat4;
 
+use crate::{
+    material::binding::{BindingType, MaterialBinding},
+    vulkan_utils::shader::ShaderStage,
+};
+
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct Ubo {
@@ -14,11 +19,11 @@ pub struct VertexPushConstant {
     model_offset: u32,
 }
 
-pub fn descriptor_set_bindings() -> [vk::DescriptorSetLayoutBinding; 1] {
-    [vk::DescriptorSetLayoutBinding::builder()
-        .binding(0)
-        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-        .stage_flags(vk::ShaderStageFlags::VERTEX)
-        .descriptor_count(1)
-        .build()]
+pub fn material_bindings() -> [MaterialBinding; 1] {
+    [MaterialBinding {
+        binding: 0,
+        binding_type: BindingType::UniformBuffer,
+        shader_stage: ShaderStage::Vertex,
+        set: 0,
+    }]
 }

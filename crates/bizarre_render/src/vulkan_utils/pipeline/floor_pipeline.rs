@@ -4,6 +4,7 @@ use anyhow::Result;
 use ash::vk;
 
 use crate::{
+    global_context::VULKAN_GLOBAL_CONTEXT,
     vulkan::pipeline::VulkanPipeline,
     vulkan_shaders::floor,
     vulkan_utils::shader::{load_shader, ShaderStage},
@@ -12,8 +13,9 @@ use crate::{
 pub fn create_floor_pipeline(
     viewport: &vk::Viewport,
     render_pass: vk::RenderPass,
-    device: &ash::Device,
 ) -> Result<VulkanPipeline> {
+    let device = VULKAN_GLOBAL_CONTEXT.device();
+
     let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
 
     let dynamic_state_info =

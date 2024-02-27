@@ -11,14 +11,20 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use crate::{
     global_context::VULKAN_GLOBAL_CONTEXT,
+    material::{
+        pass::MaterialPassType,
+        pipeline_features::{
+            CullMode, PipelineFeatureFlags, PipelineFeatures, PolygonMode, PrimitiveTopology,
+        },
+    },
     mesh_loader::{get_mesh_loader, MeshHandle},
     render_package::{MeshUpload, RenderPackage},
-    vertex::PositionVertex,
+    vertex::{MeshVertex, PositionVertex},
     vulkan::{
         device::VulkanDevice,
         frame::{VulkanFrame, VulkanFrameInfo},
         instance::VulkanInstance,
-        pipeline::VulkanPipeline,
+        pipeline::{VulkanPipeline, VulkanPipelineRequirements, VulkanPipelineStage},
         render_pass::VulkanRenderPass,
         swapchain::VulkanSwapchain,
     },
@@ -26,9 +32,9 @@ use crate::{
     vulkan_utils::{
         buffer::create_buffer,
         pipeline::{
-            create_ambient_light_pipeline, create_deferred_pipeline, create_directional_pipeline,
-            create_floor_pipeline,
+            create_ambient_light_pipeline, create_directional_pipeline, create_floor_pipeline,
         },
+        shader::ShaderStage,
     },
 };
 
@@ -58,8 +64,6 @@ pub struct Renderer {
 
     screen_vbo: vk::Buffer,
     screen_vbo_memory: vk::DeviceMemory,
-
-    memory_properties: vk::PhysicalDeviceMemoryProperties,
 }
 
 impl Renderer {
@@ -98,15 +102,35 @@ impl Renderer {
             unsafe { device.handle.create_command_pool(&create_info, None)? }
         };
 
-        let mem_props =
-            unsafe { instance.get_physical_device_memory_properties(device.physical_device) };
+        let deferred_stages = vec![
+            VulkanPipelineStage {
+                path: String::from("assets/shaders/deferred.vert"),
+                stage: ShaderStage::Vertex,
+            },
+            VulkanPipelineStage {
+                path: String::from("assets/shaders/deferred.frag"),
+                stage: ShaderStage::Fragment,
+            },
+        ];
 
-        let deferred_pipeline = create_deferred_pipeline(&viewport, render_pass.handle, &device)?;
-        let ambient_pipeline =
-            create_ambient_light_pipeline(&viewport, render_pass.handle, &device)?;
-        let directional_pipeline =
-            create_directional_pipeline(&viewport, render_pass.handle, &device)?;
-        let floor_pipeline = create_floor_pipeline(&viewport, render_pass.handle, &device)?;
+        let deferred_reqs = VulkanPipelineRequirements {
+            attachment_count: 2,
+            bindings: &deferred::material_bindings(),
+            features: PipelineFeatures {
+                culling: CullMode::Back,
+                flags: PipelineFeatureFlags::DEPTH_TEST | PipelineFeatureFlags::DEPTH_WRITE,
+                ..Default::default()
+            },
+            pass_type: MaterialPassType::Geometry,
+            render_pass: render_pass.handle,
+            stage_definitions: &deferred_stages,
+        };
+
+        let deferred_pipeline = VulkanPipeline::from_requirements::<MeshVertex>(&deferred_reqs)?;
+
+        let ambient_pipeline = create_ambient_light_pipeline(&viewport, render_pass.handle)?;
+        let directional_pipeline = create_directional_pipeline(&viewport, render_pass.handle)?;
+        let floor_pipeline = create_floor_pipeline(&viewport, render_pass.handle)?;
 
         let descriptor_pool = {
             let pool_sizes = [vk::DescriptorPoolSize::builder()
@@ -130,7 +154,6 @@ impl Renderer {
                         present_image: *present_image,
                         render_pass: render_pass.handle,
                         cmd_pool,
-                        mem_props: &mem_props,
                         deferred_set_layout: deferred_pipeline.set_layout,
                         descriptor_pool,
                         ambient_set_layout: ambient_pipeline.set_layout,
@@ -148,8 +171,6 @@ impl Renderer {
             size_of::<PositionVertex>() * 4,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE,
-            &mem_props,
-            &device,
         )?;
 
         unsafe {
@@ -203,7 +224,6 @@ impl Renderer {
             floor_pipeline,
             screen_vbo,
             screen_vbo_memory,
-            memory_properties: mem_props,
         };
 
         Ok(system)
@@ -667,12 +687,7 @@ impl Renderer {
         self.swapchain_images = self.swapchain.get_image_views()?;
 
         for (frame, image) in self.frames.iter_mut().zip(self.swapchain_images.clone()) {
-            frame.recreate(
-                self.surface_extent,
-                &self.memory_properties,
-                image,
-                *self.render_pass,
-            )?;
+            frame.recreate(self.surface_extent, image, *self.render_pass)?;
         }
 
         Ok(())

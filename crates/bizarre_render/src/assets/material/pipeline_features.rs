@@ -3,14 +3,12 @@ use bitflags::bitflags;
 
 bitflags! {
     #[repr(transparent)]
-    #[derive(Copy, Clone, Default, Debug)]
+    #[derive(Copy, Clone, Default, Debug, PartialEq)]
     pub struct PipelineFeatureFlags: usize {
         const BLEND_SHIFT = 0;
         const BLEND_FIELD_WIDTH = 4;
         const BLEND_MASK = 0xf << Self::BLEND_SHIFT.bits();
-        const BLEND_ALPHA = 0b0001;
-        const BLEND_COLOR = 0b0100;
-        const BLEND_ALL = Self::BLEND_ALPHA.bits() | Self::BLEND_COLOR.bits();
+        const BLEND_ENABLED = 0b0001;
 
         const DEPTH_SHIFT = Self::BLEND_SHIFT.bits() + Self::BLEND_FIELD_WIDTH.bits();
         const DEPTH_FIELD_WIDTH = 4;
@@ -76,9 +74,25 @@ impl From<vk::PrimitiveTopology> for PrimitiveTopology {
     }
 }
 
+#[repr(i32)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub enum PolygonMode {
+    #[default]
+    Fill = 0,
+    Line = 1,
+    Point = 2,
+}
+
+impl From<PolygonMode> for vk::PolygonMode {
+    fn from(value: PolygonMode) -> Self {
+        unsafe { Self::from_raw(value as i32) }
+    }
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct PipelineFeatures {
     pub flags: PipelineFeatureFlags,
     pub culling: CullMode,
     pub primitive_topology: PrimitiveTopology,
+    pub polygon_mode: PolygonMode,
 }

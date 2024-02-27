@@ -3,7 +3,9 @@ use std::ops::{Deref, DerefMut};
 use anyhow::Result;
 use ash::vk;
 
-use crate::vulkan_utils::vulkan_memory::find_memory_type_index;
+use crate::{
+    global_context::VULKAN_GLOBAL_CONTEXT, vulkan_utils::vulkan_memory::find_memory_type_index,
+};
 
 pub struct VulkanImage {
     pub image: vk::Image,
@@ -20,9 +22,9 @@ impl VulkanImage {
         aspect_flags: vk::ImageAspectFlags,
         usage: vk::ImageUsageFlags,
         memory_flags: vk::MemoryPropertyFlags,
-        memory_props: &vk::PhysicalDeviceMemoryProperties,
-        device: &ash::Device,
     ) -> Result<Self> {
+        let device = VULKAN_GLOBAL_CONTEXT.device();
+
         let image = {
             let image_create_info = vk::ImageCreateInfo::builder()
                 .image_type(vk::ImageType::TYPE_2D)
@@ -41,10 +43,9 @@ impl VulkanImage {
 
         let memory_requirements = unsafe { device.get_image_memory_requirements(image) };
 
-        let memory_type_index =
-            find_memory_type_index(&memory_requirements, memory_props, memory_flags).ok_or(
-                anyhow::anyhow!("Failed to find suitable memory type for image allocation"),
-            )?;
+        let memory_type_index = find_memory_type_index(&memory_requirements, memory_flags).ok_or(
+            anyhow::anyhow!("Failed to find suitable memory type for image allocation"),
+        )?;
 
         let allocate_info = vk::MemoryAllocateInfo::builder()
             .memory_type_index(memory_type_index)
