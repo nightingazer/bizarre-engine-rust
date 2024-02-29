@@ -80,7 +80,7 @@ pub fn create_ambient_light_pipeline(
         .attachments(&color_blend_attachments);
 
     let set_layout = {
-        let set_bindings = ambient::descriptor_set_bindings();
+        let set_bindings = ambient::material_bindings();
         let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&set_bindings);
         unsafe { device.create_descriptor_set_layout(&create_info, None)? }
     };

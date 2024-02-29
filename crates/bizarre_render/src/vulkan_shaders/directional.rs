@@ -1,6 +1,11 @@
 use ash::vk;
 use nalgebra_glm::Vec3;
 
+use crate::{
+    material::binding::{BindingType, MaterialBinding},
+    vulkan_utils::shader::ShaderStage,
+};
+
 #[repr(C)]
 #[derive(Debug, Clone, Default)]
 pub struct Ubo {
@@ -9,25 +14,25 @@ pub struct Ubo {
     pub color: Vec3,
 }
 
-pub fn descriptor_set_bindings() -> [vk::DescriptorSetLayoutBinding; 3] {
+pub const fn material_bindings() -> [MaterialBinding; 3] {
     [
-        vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_count(1)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build(),
-        vk::DescriptorSetLayoutBinding::builder()
-            .binding(1)
-            .descriptor_count(1)
-            .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build(),
-        vk::DescriptorSetLayoutBinding::builder()
-            .binding(2)
-            .descriptor_count(1)
-            .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build(),
+        MaterialBinding {
+            binding: 0,
+            set: 0,
+            shader_stage: ShaderStage::Fragment,
+            binding_type: BindingType::UniformBuffer,
+        },
+        MaterialBinding {
+            binding: 1,
+            set: 0,
+            shader_stage: ShaderStage::Fragment,
+            binding_type: BindingType::InputAttachment,
+        },
+        MaterialBinding {
+            binding: 2,
+            set: 0,
+            shader_stage: ShaderStage::Fragment,
+            binding_type: BindingType::InputAttachment,
+        },
     ]
 }

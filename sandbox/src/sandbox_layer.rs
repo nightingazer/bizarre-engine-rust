@@ -10,6 +10,7 @@ use bizarre_engine::{
         render_math::DirectionalLight,
     },
 };
+use nalgebra_glm::vec3;
 
 pub struct SandboxLayer;
 
@@ -55,17 +56,19 @@ impl Layer for SandboxLayer {
 
         world
             .create_entity()
-            .with(DirectionalLight {
-                color: [1.0, 0.8, 0.6],
-                position: [7.5, 10.0, 10.0],
+            .with(MeshComponent(cube_mesh))
+            .with(TransformComponent {
+                scale: vec3(10.0, 0.1, 10.0),
+                position: vec3(0.0, -0.1, 0.0),
+                ..Default::default()
             })
             .build();
 
         world
             .create_entity()
             .with(DirectionalLight {
-                color: [0.3, 0.05, 0.35],
-                position: [-2.5, 0.1, -5.0],
+                color: [1.0, 0.8, 0.6],
+                position: [7.5, 10.0, 10.0],
             })
             .build();
 

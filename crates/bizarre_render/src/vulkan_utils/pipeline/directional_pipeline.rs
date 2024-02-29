@@ -80,7 +80,7 @@ pub fn create_directional_pipeline(
     let device = VULKAN_GLOBAL_CONTEXT.device();
 
     let set_layout = {
-        let set_bindings = directional::descriptor_set_bindings();
+        let set_bindings = directional::material_bindings();
         let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&set_bindings);
         unsafe { device.create_descriptor_set_layout(&create_info, None)? }
     };

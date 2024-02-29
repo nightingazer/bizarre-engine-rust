@@ -3,8 +3,25 @@ use std::mem::offset_of;
 use ash::vk;
 use nalgebra_glm::{Vec2, Vec3};
 
-pub trait Vertex {
+pub trait Vertex: Sized {
     fn attribute_description() -> Box<[vk::VertexInputAttributeDescription]>;
+    fn binding_description() -> Box<[vk::VertexInputBindingDescription]> {
+        Box::new([vk::VertexInputBindingDescription::builder()
+            .binding(0)
+            .input_rate(vk::VertexInputRate::VERTEX)
+            .stride(std::mem::size_of::<Self>() as u32)
+            .build()])
+    }
+}
+
+impl Vertex for () {
+    fn binding_description() -> Box<[vk::VertexInputBindingDescription]> {
+        Box::new([])
+    }
+
+    fn attribute_description() -> Box<[vk::VertexInputAttributeDescription]> {
+        Box::new([])
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -2,6 +2,7 @@ use std::{ffi::CStr, path::Path};
 
 use anyhow::Result;
 use ash::vk;
+use bizarre_logger::core_warn;
 
 use crate::{
     global_context::VULKAN_GLOBAL_CONTEXT,
@@ -32,6 +33,7 @@ pub struct VulkanPipelineRequirements<'a> {
     pub stage_definitions: &'a [VulkanPipelineStage],
     pub attachment_count: usize,
     pub render_pass: vk::RenderPass,
+    pub base_pipeline: Option<&'a VulkanPipeline>,
 }
 
 impl VulkanPipeline {
@@ -44,12 +46,7 @@ impl VulkanPipeline {
         let dynamic_state_info =
             vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_states);
 
-        let vertex_binding_descriptions = [vk::VertexInputBindingDescription::builder()
-            .binding(0)
-            .input_rate(vk::VertexInputRate::VERTEX)
-            .stride(std::mem::size_of::<V>() as u32)
-            .build()];
-
+        let vertex_binding_descriptions = V::binding_description();
         let vertex_input_attributes = V::attribute_description();
 
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::builder()
@@ -85,22 +82,56 @@ impl VulkanPipeline {
             let mut blend_state = vk::PipelineColorBlendAttachmentState::builder()
                 .color_write_mask(vk::ColorComponentFlags::RGBA);
 
-            if requirements.features.flags & PipelineFeatureFlags::BLEND_ENABLED
-                != PipelineFeatureFlags::empty()
-            {
-                blend_state = blend_state
-                    .blend_enable(true)
-                    .alpha_blend_op(vk::BlendOp::MAX)
-                    .src_alpha_blend_factor(vk::BlendFactor::ONE)
-                    .dst_alpha_blend_factor(vk::BlendFactor::ONE)
-                    .color_blend_op(vk::BlendOp::ADD)
-                    .src_color_blend_factor(vk::BlendFactor::ONE)
-                    .dst_color_blend_factor(vk::BlendFactor::ONE)
+            let feature_flags = requirements.features.flags;
+
+            if feature_flags.intersects(PipelineFeatureFlags::BLEND_MASK) {
+                blend_state = blend_state.blend_enable(true);
+
+                if feature_flags.contains(PipelineFeatureFlags::BLEND_COLOR) {
+                    blend_state = blend_state
+                        .color_blend_op(vk::BlendOp::ADD)
+                        .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+                        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA);
+                } else {
+                    blend_state = blend_state
+                        .color_blend_op(vk::BlendOp::MAX)
+                        .src_color_blend_factor(vk::BlendFactor::ONE)
+                        .dst_color_blend_factor(vk::BlendFactor::ZERO);
+                }
+
+                if feature_flags.contains(PipelineFeatureFlags::BLEND_ALPHA) {
+                    blend_state = blend_state
+                        .alpha_blend_op(vk::BlendOp::ADD)
+                        .src_alpha_blend_factor(vk::BlendFactor::SRC_ALPHA)
+                        .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA);
+                } else {
+                    blend_state = blend_state
+                        .alpha_blend_op(vk::BlendOp::MAX)
+                        .src_alpha_blend_factor(vk::BlendFactor::ONE)
+                        .dst_alpha_blend_factor(vk::BlendFactor::ZERO);
+                }
+
+                if feature_flags.contains(PipelineFeatureFlags::BLEND_ADD) {
+                    #[cfg(debug_assertions)]
+                    if feature_flags.intersects(PipelineFeatureFlags::BLEND_COLOR_ALPHA) {
+                        core_warn!(
+                            "Pipeline is being created with BLEND_ADD and BLEND_COLOR/BLEND_ALPHA at the same time. Additional blending is being used"
+                        );
+                    }
+
+                    blend_state = blend_state
+                        .alpha_blend_op(vk::BlendOp::ADD)
+                        .src_alpha_blend_factor(vk::BlendFactor::ONE)
+                        .dst_alpha_blend_factor(vk::BlendFactor::ONE)
+                        .color_blend_op(vk::BlendOp::ADD)
+                        .src_color_blend_factor(vk::BlendFactor::ONE)
+                        .dst_color_blend_factor(vk::BlendFactor::ONE);
+                }
             } else {
                 blend_state = blend_state.blend_enable(false)
             }
 
-            for i in 0..requirements.attachment_count {
+            for _ in 0..requirements.attachment_count {
                 attachments.push(blend_state.clone());
             }
 

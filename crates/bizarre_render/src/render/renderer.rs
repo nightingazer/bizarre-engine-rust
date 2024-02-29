@@ -1,4 +1,4 @@
-use std::{f32, mem::size_of, sync::Arc};
+use std::{default, f32, mem::size_of, sync::Arc};
 
 use anyhow::{anyhow, bail, Result};
 use ash::{
@@ -28,14 +28,8 @@ use crate::{
         render_pass::VulkanRenderPass,
         swapchain::VulkanSwapchain,
     },
-    vulkan_shaders::{ambient, deferred, floor},
-    vulkan_utils::{
-        buffer::create_buffer,
-        pipeline::{
-            create_ambient_light_pipeline, create_directional_pipeline, create_floor_pipeline,
-        },
-        shader::ShaderStage,
-    },
+    vulkan_shaders::{ambient, deferred, directional, floor},
+    vulkan_utils::{buffer::create_buffer, pipeline::create_floor_pipeline, shader::ShaderStage},
 };
 
 pub struct Renderer {
@@ -102,17 +96,6 @@ impl Renderer {
             unsafe { device.handle.create_command_pool(&create_info, None)? }
         };
 
-        let deferred_stages = vec![
-            VulkanPipelineStage {
-                path: String::from("assets/shaders/deferred.vert"),
-                stage: ShaderStage::Vertex,
-            },
-            VulkanPipelineStage {
-                path: String::from("assets/shaders/deferred.frag"),
-                stage: ShaderStage::Fragment,
-            },
-        ];
-
         let deferred_reqs = VulkanPipelineRequirements {
             attachment_count: 2,
             bindings: &deferred::material_bindings(),
@@ -123,14 +106,89 @@ impl Renderer {
             },
             pass_type: MaterialPassType::Geometry,
             render_pass: render_pass.handle,
-            stage_definitions: &deferred_stages,
+            stage_definitions: &[
+                VulkanPipelineStage {
+                    path: String::from("assets/shaders/deferred.vert"),
+                    stage: ShaderStage::Vertex,
+                },
+                VulkanPipelineStage {
+                    path: String::from("assets/shaders/deferred.frag"),
+                    stage: ShaderStage::Fragment,
+                },
+            ],
+            base_pipeline: None,
         };
 
         let deferred_pipeline = VulkanPipeline::from_requirements::<MeshVertex>(&deferred_reqs)?;
 
-        let ambient_pipeline = create_ambient_light_pipeline(&viewport, render_pass.handle)?;
-        let directional_pipeline = create_directional_pipeline(&viewport, render_pass.handle)?;
-        let floor_pipeline = create_floor_pipeline(&viewport, render_pass.handle)?;
+        let ambient_reqs = VulkanPipelineRequirements {
+            attachment_count: 1,
+            bindings: &ambient::material_bindings(),
+            features: PipelineFeatures {
+                flags: PipelineFeatureFlags::BLEND_ADD,
+                primitive_topology: PrimitiveTopology::TriangleFan,
+                ..deferred_reqs.features
+            },
+            pass_type: MaterialPassType::Lighting,
+            stage_definitions: &[
+                VulkanPipelineStage {
+                    path: String::from("assets/shaders/ambient.vert"),
+                    stage: ShaderStage::Vertex,
+                },
+                VulkanPipelineStage {
+                    path: String::from("assets/shaders/ambient.frag"),
+                    stage: ShaderStage::Fragment,
+                },
+            ],
+            base_pipeline: Some(&deferred_pipeline),
+            ..deferred_reqs
+        };
+
+        let ambient_pipeline = VulkanPipeline::from_requirements::<PositionVertex>(&ambient_reqs)?;
+
+        let directional_reqs = VulkanPipelineRequirements {
+            bindings: &directional::material_bindings(),
+            stage_definitions: &[
+                VulkanPipelineStage {
+                    path: String::from("assets/shaders/directional.vert"),
+                    stage: ShaderStage::Vertex,
+                },
+                VulkanPipelineStage {
+                    path: String::from("assets/shaders/directional.frag"),
+                    stage: ShaderStage::Fragment,
+                },
+            ],
+            base_pipeline: Some(&ambient_pipeline),
+            ..ambient_reqs
+        };
+
+        let directional_pipeline =
+            VulkanPipeline::from_requirements::<PositionVertex>(&directional_reqs)?;
+
+        let floor_req = VulkanPipelineRequirements {
+            bindings: &floor::material_bindings(),
+            pass_type: MaterialPassType::Translucent,
+            features: PipelineFeatures {
+                culling: CullMode::None,
+                primitive_topology: PrimitiveTopology::TriangleFan,
+                flags: PipelineFeatureFlags::BLEND_COLOR_ALPHA | PipelineFeatureFlags::DEPTH_TEST,
+                ..Default::default()
+            },
+            stage_definitions: &[
+                VulkanPipelineStage {
+                    path: String::from("assets/shaders/floor.vert"),
+                    stage: ShaderStage::Vertex,
+                },
+                VulkanPipelineStage {
+                    path: String::from("assets/shaders/floor.frag"),
+                    stage: ShaderStage::Fragment,
+                },
+            ],
+            ..directional_reqs
+        };
+
+        let floor_pipeline = VulkanPipeline::from_requirements::<()>(&floor_req)?;
+        // let floor_pipeline = create_floor_pipeline(&viewport, render_pass.handle)?;
 
         let descriptor_pool = {
             let pool_sizes = [vk::DescriptorPoolSize::builder()

@@ -19,7 +19,7 @@ pub struct VertexPushConstant {
     model_offset: u32,
 }
 
-pub fn material_bindings() -> [MaterialBinding; 1] {
+pub const fn material_bindings() -> [MaterialBinding; 1] {
     [MaterialBinding {
         binding: 0,
         binding_type: BindingType::UniformBuffer,

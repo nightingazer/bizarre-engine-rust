@@ -16,6 +16,7 @@ impl From<BindingType> for vk::DescriptorType {
 }
 
 /// Describes a binding from the shader perspective
+#[derive(Debug, Clone)]
 pub struct MaterialBinding {
     pub binding: u32,
     pub set: u32,

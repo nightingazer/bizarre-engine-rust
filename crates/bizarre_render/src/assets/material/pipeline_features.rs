@@ -8,7 +8,10 @@ bitflags! {
         const BLEND_SHIFT = 0;
         const BLEND_FIELD_WIDTH = 4;
         const BLEND_MASK = 0xf << Self::BLEND_SHIFT.bits();
-        const BLEND_ENABLED = 0b0001;
+        const BLEND_ALPHA = 0b0001;
+        const BLEND_COLOR = 0b0010;
+        const BLEND_COLOR_ALPHA = 0b0011;
+        const BLEND_ADD = 0b0100;
 
         const DEPTH_SHIFT = Self::BLEND_SHIFT.bits() + Self::BLEND_FIELD_WIDTH.bits();
         const DEPTH_FIELD_WIDTH = 4;

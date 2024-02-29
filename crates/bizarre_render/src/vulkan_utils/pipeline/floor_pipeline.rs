@@ -74,8 +74,12 @@ pub fn create_floor_pipeline(
         .attachments(&color_blend_attachments);
 
     let set_layout = {
-        let set_bindings = floor::descriptor_set_bindings();
-        let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&set_bindings);
+        let bindings = floor::material_bindings()
+            .iter()
+            .map(vk::DescriptorSetLayoutBinding::from)
+            .collect::<Vec<_>>();
+
+        let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         unsafe { device.create_descriptor_set_layout(&create_info, None)? }
     };
 

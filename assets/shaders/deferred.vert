@@ -23,7 +23,13 @@ void main() {
     gl_Position = view_projection_model * vec4(position, 1.0);
     vec4 VinView = normalize(-gl_Position);
     v_color = vec4(1.0, 1.0, 1.0, 1.0);
-    v_normal = (model * vec4(normal, 0.0));
+
+    mat3 mat_n = mat3(model);
+    mat_n[0] /= dot(mat_n[0], mat_n[0]);
+    mat_n[1] /= dot(mat_n[1], mat_n[1]);
+    mat_n[2] /= dot(mat_n[2], mat_n[2]);
+
+    v_normal = vec4(normalize(mat_n * normal), 0.0);
     vec4 normInView = (uniforms.view_projection * v_normal);
     v_normal.w = dot(normInView, VinView) * 0.5 + 0.5;
 }

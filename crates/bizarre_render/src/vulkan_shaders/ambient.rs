@@ -1,30 +1,35 @@
 use ash::vk;
 
+use crate::{
+    material::binding::{BindingType, MaterialBinding},
+    vulkan_utils::shader::ShaderStage,
+};
+
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct Ubo {
     pub color: [f32; 3],
 }
 
-pub fn descriptor_set_bindings() -> [vk::DescriptorSetLayoutBinding; 3] {
+pub const fn material_bindings() -> [MaterialBinding; 3] {
     [
-        vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .build(),
-        vk::DescriptorSetLayoutBinding::builder()
-            .binding(1)
-            .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .descriptor_count(1)
-            .build(),
-        vk::DescriptorSetLayoutBinding::builder()
-            .binding(2)
-            .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .descriptor_count(1)
-            .build(),
+        MaterialBinding {
+            binding: 0,
+            set: 0,
+            shader_stage: ShaderStage::Fragment,
+            binding_type: BindingType::UniformBuffer,
+        },
+        MaterialBinding {
+            binding: 1,
+            set: 0,
+            shader_stage: ShaderStage::Fragment,
+            binding_type: BindingType::InputAttachment,
+        },
+        MaterialBinding {
+            binding: 2,
+            set: 0,
+            shader_stage: ShaderStage::Fragment,
+            binding_type: BindingType::InputAttachment,
+        },
     ]
 }
