@@ -1,4 +1,4 @@
-use std::{default, f32, mem::size_of, sync::Arc};
+use std::{default, f32, marker::PhantomData, mem::size_of, sync::Arc};
 
 use anyhow::{anyhow, bail, Result};
 use ash::{
@@ -19,7 +19,7 @@ use crate::{
     },
     mesh_loader::{get_mesh_loader, MeshHandle},
     render_package::{MeshUpload, RenderPackage},
-    vertex::{MeshVertex, PositionVertex},
+    vertex::{MeshVertex, PositionVertex, Vertex},
     vulkan::{
         device::VulkanDevice,
         frame::{VulkanFrame, VulkanFrameInfo},
@@ -83,7 +83,7 @@ impl Renderer {
 
         let swapchain_images = swapchain.image_views.clone();
 
-        let render_pass = VulkanRenderPass::new(swapchain.image_format, &window_extent, &device)?;
+        let render_pass = VulkanRenderPass::new(swapchain.image_format, &device)?;
 
         let viewport = create_viewport(window_extent);
 
@@ -117,9 +117,11 @@ impl Renderer {
                 },
             ],
             base_pipeline: None,
+            vertex_attributes: MeshVertex::attribute_description(),
+            vertex_bindings: MeshVertex::binding_description(),
         };
 
-        let deferred_pipeline = VulkanPipeline::from_requirements::<MeshVertex>(&deferred_reqs)?;
+        let deferred_pipeline = VulkanPipeline::from_requirements(&deferred_reqs)?;
 
         let ambient_reqs = VulkanPipelineRequirements {
             attachment_count: 1,
@@ -141,10 +143,12 @@ impl Renderer {
                 },
             ],
             base_pipeline: Some(&deferred_pipeline),
+            vertex_attributes: PositionVertex::attribute_description(),
+            vertex_bindings: PositionVertex::binding_description(),
             ..deferred_reqs
         };
 
-        let ambient_pipeline = VulkanPipeline::from_requirements::<PositionVertex>(&ambient_reqs)?;
+        let ambient_pipeline = VulkanPipeline::from_requirements(&ambient_reqs)?;
 
         let directional_reqs = VulkanPipelineRequirements {
             bindings: &directional::material_bindings(),
@@ -162,8 +166,7 @@ impl Renderer {
             ..ambient_reqs
         };
 
-        let directional_pipeline =
-            VulkanPipeline::from_requirements::<PositionVertex>(&directional_reqs)?;
+        let directional_pipeline = VulkanPipeline::from_requirements(&directional_reqs)?;
 
         let floor_req = VulkanPipelineRequirements {
             bindings: &floor::material_bindings(),
@@ -184,11 +187,12 @@ impl Renderer {
                     stage: ShaderStage::Fragment,
                 },
             ],
+            vertex_attributes: <() as Vertex>::attribute_description(),
+            vertex_bindings: <() as Vertex>::binding_description(),
             ..directional_reqs
         };
 
-        let floor_pipeline = VulkanPipeline::from_requirements::<()>(&floor_req)?;
-        // let floor_pipeline = create_floor_pipeline(&viewport, render_pass.handle)?;
+        let floor_pipeline = VulkanPipeline::from_requirements(&floor_req)?;
 
         let descriptor_pool = {
             let pool_sizes = [vk::DescriptorPoolSize::builder()

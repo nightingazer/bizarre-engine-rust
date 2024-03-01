@@ -24,6 +24,7 @@ pub struct VulkanContext {
     instance: VulkanInstance,
     device: VulkanDevice,
     physical_memory_properties: vk::PhysicalDeviceMemoryProperties,
+    descriptor_pool: vk::DescriptorPool,
 }
 
 pub struct VulkanGlobalContext {
@@ -61,13 +62,27 @@ impl VulkanGlobalContext {
             .physical_memory_properties
     }
 
+    pub fn descriptor_pool(&self) -> vk::DescriptorPool {
+        self.context
+            .get()
+            .expect("Trying to get access to Vulkan global context before it was initialized!")
+            .descriptor_pool
+    }
+
     pub fn destroy(&self) {
         let context = self
             .context
             .get()
             .expect("Trying to destroy Vulkan global context before creating one!");
-        context.instance.destroy();
+
+        unsafe {
+            context
+                .device
+                .destroy_descriptor_pool(context.descriptor_pool, None);
+        }
+
         context.device.destroy();
+        context.instance.destroy();
     }
 }
 
@@ -107,9 +122,28 @@ fn create_global_context(window: &winit::window::Window) -> Result<VulkanContext
     let physical_memory_properties =
         unsafe { instance.get_physical_device_memory_properties(device.physical_device) };
 
+    let descriptor_pool = {
+        let pool_sizes = [
+            vk::DescriptorPoolSize::builder()
+                .ty(vk::DescriptorType::UNIFORM_BUFFER)
+                .descriptor_count(10)
+                .build(),
+            vk::DescriptorPoolSize::builder()
+                .ty(vk::DescriptorType::INPUT_ATTACHMENT)
+                .descriptor_count(10)
+                .build(),
+        ];
+        let create_info = vk::DescriptorPoolCreateInfo::builder()
+            .max_sets(512)
+            .pool_sizes(&pool_sizes);
+
+        unsafe { device.create_descriptor_pool(&create_info, None)? }
+    };
+
     Ok(VulkanContext {
         instance,
         device,
         physical_memory_properties,
+        descriptor_pool,
     })
 }

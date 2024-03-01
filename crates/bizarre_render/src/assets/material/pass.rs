@@ -1,8 +1,12 @@
 use std::path::PathBuf;
 
+use anyhow::Result;
 use ash::vk;
 
-use crate::vulkan_utils::shader::ShaderStage;
+use crate::{
+    vulkan::pipeline::{VulkanPipeline, VulkanPipelineRequirements},
+    vulkan_utils::shader::ShaderStage,
+};
 
 use super::{binding::MaterialBinding, pipeline_features::PipelineFeatures};
 
@@ -21,17 +25,7 @@ pub struct MaterialPassStage {
     pub shader_stage: ShaderStage,
 }
 
-#[derive(Debug, Clone)]
 pub struct MaterialPass {
-    pub pipeline: vk::Pipeline,
-    pub set_layout: vk::DescriptorSetLayout,
+    pub pipeline: VulkanPipeline,
     pub bindings: Box<[MaterialBinding]>,
-}
-
-#[derive(Debug, Clone)]
-pub struct MaterialPassCreateInfo<'a> {
-    pub stages: MaterialPassStage,
-    pub pipeline_features: PipelineFeatures,
-    pub bindings: &'a Vec<MaterialBinding>,
-    pub pass_type: MaterialPassType,
 }

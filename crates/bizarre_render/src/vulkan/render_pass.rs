@@ -12,11 +12,7 @@ pub struct VulkanRenderPass {
 }
 
 impl VulkanRenderPass {
-    pub fn new(
-        output_format: vk::Format,
-        _extent: &vk::Extent2D,
-        device: &ash::Device,
-    ) -> Result<Self> {
+    pub fn new(output_format: vk::Format, device: &ash::Device) -> Result<Self> {
         let output_attachment = vk::AttachmentDescription::builder()
             .format(output_format)
             .samples(vk::SampleCountFlags::TYPE_1)

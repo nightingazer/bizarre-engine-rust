@@ -1,5 +1,4 @@
-#![feature(lazy_cell)]
-#![feature(variant_count)]
+#![feature(lazy_cell, slice_pattern, variant_count)]
 
 mod assets;
 mod render;

@@ -1,4 +1,5 @@
-use std::{ffi::CStr, path::Path};
+use core::slice::SlicePattern;
+use std::{ffi::CStr, marker::PhantomData, path::Path};
 
 use anyhow::Result;
 use ash::vk;
@@ -15,17 +16,20 @@ use crate::{
     vulkan_utils::shader::{load_shader, ShaderStage},
 };
 
+#[derive(Debug)]
 pub struct VulkanPipeline {
     pub handle: vk::Pipeline,
     pub layout: vk::PipelineLayout,
     pub set_layout: vk::DescriptorSetLayout,
 }
 
+#[derive(Debug, Clone)]
 pub struct VulkanPipelineStage {
     pub path: String,
     pub stage: ShaderStage,
 }
 
+#[derive(Debug, Clone)]
 pub struct VulkanPipelineRequirements<'a> {
     pub features: PipelineFeatures,
     pub pass_type: MaterialPassType,
@@ -34,20 +38,19 @@ pub struct VulkanPipelineRequirements<'a> {
     pub attachment_count: usize,
     pub render_pass: vk::RenderPass,
     pub base_pipeline: Option<&'a VulkanPipeline>,
+    pub vertex_bindings: Box<[vk::VertexInputBindingDescription]>,
+    pub vertex_attributes: Box<[vk::VertexInputAttributeDescription]>,
 }
 
 impl VulkanPipeline {
-    pub fn from_requirements<V>(requirements: &VulkanPipelineRequirements) -> Result<VulkanPipeline>
-    where
-        V: Vertex,
-    {
+    pub fn from_requirements(requirements: &VulkanPipelineRequirements) -> Result<VulkanPipeline> {
         let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
 
         let dynamic_state_info =
             vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_states);
 
-        let vertex_binding_descriptions = V::binding_description();
-        let vertex_input_attributes = V::attribute_description();
+        let vertex_binding_descriptions = requirements.vertex_bindings.as_slice();
+        let vertex_input_attributes = requirements.vertex_attributes.as_slice();
 
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::builder()
             .vertex_binding_descriptions(&vertex_binding_descriptions)

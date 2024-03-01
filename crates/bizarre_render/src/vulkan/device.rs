@@ -7,8 +7,6 @@ use anyhow::{bail, Result};
 use ash::{extensions::khr, vk};
 use bizarre_logger::core_info;
 
-use crate::material::pass::{MaterialPass, MaterialPassCreateInfo};
-
 use super::instance::VulkanInstance;
 
 pub struct VulkanDevice {
