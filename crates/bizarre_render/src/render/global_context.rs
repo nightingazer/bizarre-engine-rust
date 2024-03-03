@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use ash::vk;
+use ash::vk::{self, SampleCountFlags};
 use bizarre_logger::{core_critical, core_warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use winit::{
@@ -25,6 +25,7 @@ pub struct VulkanContext {
     device: VulkanDevice,
     physical_memory_properties: vk::PhysicalDeviceMemoryProperties,
     descriptor_pool: vk::DescriptorPool,
+    max_msaa: vk::SampleCountFlags,
 }
 
 pub struct VulkanGlobalContext {
@@ -84,6 +85,13 @@ impl VulkanGlobalContext {
         context.device.destroy();
         context.instance.destroy();
     }
+
+    pub fn max_msaa(&self) -> vk::SampleCountFlags {
+        self.context
+            .get()
+            .expect("Trying to get access to Vulkan global context before it was initialized!")
+            .max_msaa
+    }
 }
 
 pub fn init_vulkan_global_context(window: &winit::window::Window) -> Result<()> {
@@ -122,6 +130,21 @@ fn create_global_context(window: &winit::window::Window) -> Result<VulkanContext
     let physical_memory_properties =
         unsafe { instance.get_physical_device_memory_properties(device.physical_device) };
 
+    let pdevice_props = unsafe { instance.get_physical_device_properties(device.physical_device) };
+
+    let sample_count_flags = pdevice_props.limits.framebuffer_color_sample_counts;
+    let max_msaa = if sample_count_flags.contains(vk::SampleCountFlags::TYPE_8) {
+        vk::SampleCountFlags::TYPE_8
+    } else if sample_count_flags.contains(vk::SampleCountFlags::TYPE_4) {
+        vk::SampleCountFlags::TYPE_4
+    } else if sample_count_flags.contains(vk::SampleCountFlags::TYPE_2) {
+        vk::SampleCountFlags::TYPE_2
+    } else {
+        vk::SampleCountFlags::TYPE_1
+    };
+
+    let max_msaa = vk::SampleCountFlags::TYPE_4;
+
     let descriptor_pool = {
         let pool_sizes = [
             vk::DescriptorPoolSize::builder()
@@ -145,5 +168,6 @@ fn create_global_context(window: &winit::window::Window) -> Result<VulkanContext
         device,
         physical_memory_properties,
         descriptor_pool,
+        max_msaa,
     })
 }

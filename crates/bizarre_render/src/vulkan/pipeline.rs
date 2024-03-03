@@ -78,7 +78,7 @@ impl VulkanPipeline {
 
         let multisampling_info = vk::PipelineMultisampleStateCreateInfo::builder()
             .sample_shading_enable(false)
-            .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+            .rasterization_samples(VULKAN_GLOBAL_CONTEXT.max_msaa());
 
         let color_blend_attachments = {
             let mut attachments = Vec::with_capacity(requirements.attachment_count);

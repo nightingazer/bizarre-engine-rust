@@ -4,7 +4,10 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use ash::{util::Align, vk};
+use ash::{
+    util::Align,
+    vk::{self, ImageUsageFlags},
+};
 
 use nalgebra_glm::{vec3, Mat4};
 
@@ -71,6 +74,7 @@ pub struct VulkanFrame {
     pub color_image: VulkanImage,
     pub depth_image: VulkanImage,
     pub normals_image: VulkanImage,
+    pub resolve_image: VulkanImage,
 }
 
 pub struct VulkanFrameInfo {
@@ -102,13 +106,15 @@ impl VulkanFrame {
             depth: 1,
         };
 
-        let (output_image, depth_image, color_image, normals_image) = create_frame_images(extent)?;
+        let (output_image, depth_image, color_image, normals_image, resolve_image) =
+            create_frame_images(extent)?;
 
         let framebuffer_attachments = [
             output_image.view,
             depth_image.view,
             color_image.view,
             normals_image.view,
+            resolve_image.view,
         ];
         let framebuffer =
             create_framebuffer(&framebuffer_attachments, info.extent, info.render_pass)?;
@@ -379,6 +385,7 @@ impl VulkanFrame {
             color_image,
             depth_image,
             normals_image,
+            resolve_image,
         };
 
         Ok(vulkan_frame)
@@ -480,13 +487,19 @@ impl VulkanFrame {
             width: extent.width,
         };
 
-        let (output, depth, color, normal) = create_frame_images(extent_3d)?;
+        let (output, depth, color, normal, resolve) = create_frame_images(extent_3d)?;
 
         unsafe {
             device.destroy_framebuffer(self.framebuffer, None);
         }
 
-        let attachments = [output.view, depth.view, color.view, normal.view];
+        let attachments = [
+            output.view,
+            depth.view,
+            color.view,
+            normal.view,
+            resolve.view,
+        ];
 
         self.framebuffer = create_framebuffer(&attachments, extent, render_pass)?;
 
@@ -494,6 +507,7 @@ impl VulkanFrame {
         self.depth_image = depth;
         self.color_image = color;
         self.normals_image = normal;
+        self.resolve_image = resolve;
 
         self.update_sets_with_images();
 
@@ -565,6 +579,7 @@ impl VulkanFrame {
             &mut self.color_image,
             &mut self.depth_image,
             &mut self.normals_image,
+            &mut self.resolve_image,
         ];
 
         for image in images.iter_mut() {
@@ -626,13 +641,21 @@ impl VulkanFrame {
 
 fn create_frame_images(
     extent: vk::Extent3D,
-) -> Result<(VulkanImage, VulkanImage, VulkanImage, VulkanImage), anyhow::Error> {
+) -> Result<(
+    VulkanImage,
+    VulkanImage,
+    VulkanImage,
+    VulkanImage,
+    VulkanImage,
+)> {
+    let sample_count = VULKAN_GLOBAL_CONTEXT.max_msaa();
     let output_image = VulkanImage::new(
         extent,
         vk::Format::R16G16B16A16_SFLOAT,
         vk::ImageAspectFlags::COLOR,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        sample_count,
     )?;
     let depth_image = VulkanImage::new(
         extent,
@@ -640,6 +663,7 @@ fn create_frame_images(
         vk::ImageAspectFlags::DEPTH,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        sample_count,
     )?;
     let color_image = VulkanImage::new(
         extent,
@@ -647,6 +671,7 @@ fn create_frame_images(
         vk::ImageAspectFlags::COLOR,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        sample_count,
     )?;
     let normals_image = VulkanImage::new(
         extent,
@@ -654,6 +679,21 @@ fn create_frame_images(
         vk::ImageAspectFlags::COLOR,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        sample_count,
     )?;
-    Ok((output_image, depth_image, color_image, normals_image))
+    let resolve_image = VulkanImage::new(
+        extent,
+        vk::Format::R16G16B16A16_SFLOAT,
+        vk::ImageAspectFlags::COLOR,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::SampleCountFlags::TYPE_1,
+    )?;
+    Ok((
+        output_image,
+        depth_image,
+        color_image,
+        normals_image,
+        resolve_image,
+    ))
 }

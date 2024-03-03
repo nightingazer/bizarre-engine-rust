@@ -22,6 +22,7 @@ impl VulkanImage {
         aspect_flags: vk::ImageAspectFlags,
         usage: vk::ImageUsageFlags,
         memory_flags: vk::MemoryPropertyFlags,
+        sample_count: vk::SampleCountFlags,
     ) -> Result<Self> {
         let device = VULKAN_GLOBAL_CONTEXT.device();
 
@@ -32,7 +33,7 @@ impl VulkanImage {
                 .extent(extent)
                 .mip_levels(1)
                 .array_layers(1)
-                .samples(vk::SampleCountFlags::TYPE_1)
+                .samples(sample_count)
                 .tiling(vk::ImageTiling::OPTIMAL)
                 .usage(usage)
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)

@@ -3,6 +3,8 @@ use std::ops::{Deref, DerefMut};
 use anyhow::Result;
 use ash::vk;
 
+use crate::global_context::VULKAN_GLOBAL_CONTEXT;
+
 pub struct VulkanRenderPass {
     pub handle: vk::RenderPass,
     pub output_attachment: vk::AttachmentDescription,
@@ -15,7 +17,7 @@ impl VulkanRenderPass {
     pub fn new(device: &ash::Device) -> Result<Self> {
         let output_attachment = vk::AttachmentDescription::builder()
             .format(vk::Format::R16G16B16A16_SFLOAT)
-            .samples(vk::SampleCountFlags::TYPE_1)
+            .samples(VULKAN_GLOBAL_CONTEXT.max_msaa())
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
             .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
@@ -26,7 +28,7 @@ impl VulkanRenderPass {
 
         let depth_attachment = vk::AttachmentDescription::builder()
             .format(vk::Format::D32_SFLOAT)
-            .samples(vk::SampleCountFlags::TYPE_1)
+            .samples(VULKAN_GLOBAL_CONTEXT.max_msaa())
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
@@ -35,7 +37,7 @@ impl VulkanRenderPass {
 
         let color_attachment = vk::AttachmentDescription::builder()
             .format(vk::Format::R16G16B16A16_SFLOAT)
-            .samples(vk::SampleCountFlags::TYPE_1)
+            .samples(VULKAN_GLOBAL_CONTEXT.max_msaa())
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
@@ -44,11 +46,20 @@ impl VulkanRenderPass {
 
         let normals_attachment = vk::AttachmentDescription::builder()
             .format(vk::Format::R16G16B16A16_SFLOAT)
-            .samples(vk::SampleCountFlags::TYPE_1)
+            .samples(VULKAN_GLOBAL_CONTEXT.max_msaa())
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .build();
+
+        let resolve_attachment = vk::AttachmentDescription::builder()
+            .format(vk::Format::R16G16B16A16_SFLOAT)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .load_op(vk::AttachmentLoadOp::DONT_CARE)
+            .store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .final_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
             .build();
 
         let output_attachment_ref = vk::AttachmentReference {
@@ -81,6 +92,11 @@ impl VulkanRenderPass {
             layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         };
 
+        let resolve_attachment_ref = vk::AttachmentReference {
+            attachment: 4,
+            layout: vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+        };
+
         let deferred_attachments = [
             deferred_color_attachment_ref,
             deferred_normals_attachment_ref,
@@ -102,10 +118,13 @@ impl VulkanRenderPass {
             .input_attachments(&lighting_input_attachments)
             .build();
 
+        let floor_resolve_attachments = [resolve_attachment_ref];
+
         let floor_subpass = vk::SubpassDescription::builder()
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .color_attachments(&lighting_attachments)
             .depth_stencil_attachment(&depth_attachment_ref)
+            .resolve_attachments(&floor_resolve_attachments)
             .build();
 
         let dependencies = [
@@ -147,6 +166,7 @@ impl VulkanRenderPass {
             depth_attachment,
             color_attachment,
             normals_attachment,
+            resolve_attachment,
         ];
 
         let render_pass = {

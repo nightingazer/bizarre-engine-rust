@@ -622,7 +622,7 @@ impl Renderer {
 
             self.blit_image(
                 self.frames[present_index].render_cmd,
-                self.frames[present_index].output_image.image,
+                self.frames[present_index].resolve_image.image,
                 self.swapchain.images[present_index],
             );
 
@@ -704,7 +704,7 @@ impl Renderer {
     fn blit_image(
         &mut self,
         cmd: vk::CommandBuffer,
-        output_image: vk::Image,
+        src_image: vk::Image,
         present_image: vk::Image,
     ) {
         let blit_region = vk::ImageBlit2::builder()
@@ -741,7 +741,7 @@ impl Renderer {
         let blit_regions = [blit_region];
 
         let blit_image_info = vk::BlitImageInfo2::builder()
-            .src_image(output_image)
+            .src_image(src_image)
             .src_image_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
             .dst_image(present_image)
             .dst_image_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
