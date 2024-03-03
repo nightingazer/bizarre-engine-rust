@@ -67,6 +67,7 @@ pub struct VulkanFrame {
 
     pub descriptor_pool: vk::DescriptorPool,
 
+    pub output_image: VulkanImage,
     pub color_image: VulkanImage,
     pub depth_image: VulkanImage,
     pub normals_image: VulkanImage,
@@ -101,10 +102,10 @@ impl VulkanFrame {
             depth: 1,
         };
 
-        let (depth_image, color_image, normals_image) = create_frame_images(extent)?;
+        let (output_image, depth_image, color_image, normals_image) = create_frame_images(extent)?;
 
         let framebuffer_attachments = [
-            info.present_image,
+            output_image.view,
             depth_image.view,
             color_image.view,
             normals_image.view,
@@ -374,6 +375,7 @@ impl VulkanFrame {
             floor_set: *floor_set,
             floor_ubo,
             floor_ubo_memory,
+            output_image,
             color_image,
             depth_image,
             normals_image,
@@ -478,16 +480,17 @@ impl VulkanFrame {
             width: extent.width,
         };
 
-        let (depth, color, normal) = create_frame_images(extent_3d)?;
+        let (output, depth, color, normal) = create_frame_images(extent_3d)?;
 
         unsafe {
             device.destroy_framebuffer(self.framebuffer, None);
         }
 
-        let attachments = [present_image, depth.view, color.view, normal.view];
+        let attachments = [output.view, depth.view, color.view, normal.view];
 
         self.framebuffer = create_framebuffer(&attachments, extent, render_pass)?;
 
+        self.output_image = output;
         self.depth_image = depth;
         self.color_image = color;
         self.normals_image = normal;
@@ -558,6 +561,7 @@ impl VulkanFrame {
 
     fn destroy_images(&mut self, device: &ash::Device) {
         let mut images = [
+            &mut self.output_image,
             &mut self.color_image,
             &mut self.depth_image,
             &mut self.normals_image,
@@ -622,7 +626,14 @@ impl VulkanFrame {
 
 fn create_frame_images(
     extent: vk::Extent3D,
-) -> Result<(VulkanImage, VulkanImage, VulkanImage), anyhow::Error> {
+) -> Result<(VulkanImage, VulkanImage, VulkanImage, VulkanImage), anyhow::Error> {
+    let output_image = VulkanImage::new(
+        extent,
+        vk::Format::R16G16B16A16_SFLOAT,
+        vk::ImageAspectFlags::COLOR,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
     let depth_image = VulkanImage::new(
         extent,
         vk::Format::D32_SFLOAT,
@@ -644,5 +655,5 @@ fn create_frame_images(
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
     )?;
-    Ok((depth_image, color_image, normals_image))
+    Ok((output_image, depth_image, color_image, normals_image))
 }

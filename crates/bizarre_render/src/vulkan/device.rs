@@ -114,10 +114,15 @@ impl VulkanDevice {
             .queue_family_index(queue_family_index)
             .queue_priorities(&priorities);
 
+        let mut synchronization_feature = vk::PhysicalDeviceSynchronization2Features::builder()
+            .synchronization2(true)
+            .build();
+
         let device_create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(std::slice::from_ref(&queue_info))
             .enabled_extension_names(&device_extension_names_raw)
-            .enabled_features(&pdevice_features);
+            .enabled_features(&pdevice_features)
+            .push_next(&mut synchronization_feature);
 
         let device = unsafe {
             instance

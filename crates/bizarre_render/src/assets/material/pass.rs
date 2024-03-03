@@ -25,7 +25,7 @@ pub struct MaterialPassStage {
     pub shader_stage: ShaderStage,
 }
 
-pub struct MaterialPass {
+pub struct MaterialPipeline {
     pub pipeline: VulkanPipeline,
     pub bindings: Box<[MaterialBinding]>,
 }

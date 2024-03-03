@@ -5,7 +5,7 @@ use ash::{extensions::khr, vk};
 
 use crate::global_context::VULKAN_GLOBAL_CONTEXT;
 
-use super::{device::VulkanDevice, instance::VulkanInstance};
+use super::{device::VulkanDevice, image::VulkanImage, instance::VulkanInstance};
 
 pub struct VulkanSwapchain {
     pub handle: vk::SwapchainKHR,
@@ -14,6 +14,7 @@ pub struct VulkanSwapchain {
     pub surface_format: vk::SurfaceFormatKHR,
     pub swapchain_loader: khr::Swapchain,
     pub surface_loader: khr::Surface,
+    pub images: Vec<vk::Image>,
     pub image_views: Vec<vk::ImageView>,
 }
 
@@ -67,7 +68,8 @@ impl VulkanSwapchain {
             &swapchain_loader,
         )?;
 
-        let image_views = create_image_views(&swapchain_loader, swapchain, surface_format, device)?;
+        let (images, image_views) =
+            create_images(&swapchain_loader, swapchain, surface_format, device)?;
 
         Ok(Self {
             handle: swapchain,
@@ -76,6 +78,7 @@ impl VulkanSwapchain {
             surface_loader,
             surface_format,
             image_format: surface_format.format,
+            images,
             image_views,
         })
     }
@@ -106,7 +109,7 @@ impl VulkanSwapchain {
             &self.swapchain_loader,
         )?;
 
-        self.image_views = create_image_views(
+        (self.images, self.image_views) = create_images(
             &self.swapchain_loader,
             self.handle,
             self.surface_format,
@@ -191,7 +194,7 @@ fn create_swapchain(
         .image_color_space(surface_format.color_space)
         .image_format(surface_format.format)
         .image_extent(surface_resolution)
-        .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+        .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST)
         .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
         .pre_transform(pre_transform)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
@@ -204,12 +207,12 @@ fn create_swapchain(
 }
 
 #[inline]
-fn create_image_views(
+fn create_images(
     swapchain_loader: &khr::Swapchain,
     swapchain: vk::SwapchainKHR,
     surface_format: vk::SurfaceFormatKHR,
     device: &VulkanDevice,
-) -> Result<Vec<vk::ImageView>> {
+) -> Result<(Vec<vk::Image>, Vec<vk::ImageView>)> {
     let images = unsafe { swapchain_loader.get_swapchain_images(swapchain)? };
     let image_views = images
         .iter()
@@ -238,5 +241,5 @@ fn create_image_views(
         })
         .collect::<Result<Vec<_>>>()
         .expect("Failed to create image views");
-    Ok(image_views)
+    Ok((images, image_views))
 }

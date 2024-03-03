@@ -12,16 +12,16 @@ pub struct VulkanRenderPass {
 }
 
 impl VulkanRenderPass {
-    pub fn new(output_format: vk::Format, device: &ash::Device) -> Result<Self> {
+    pub fn new(device: &ash::Device) -> Result<Self> {
         let output_attachment = vk::AttachmentDescription::builder()
-            .format(output_format)
+            .format(vk::Format::R16G16B16A16_SFLOAT)
             .samples(vk::SampleCountFlags::TYPE_1)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
             .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
             .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+            .final_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
             .build();
 
         let depth_attachment = vk::AttachmentDescription::builder()

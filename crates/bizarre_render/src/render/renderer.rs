@@ -43,6 +43,7 @@ pub struct Renderer {
     frames: Vec<VulkanFrame>,
     max_frames_in_flight: usize,
     current_frame_index: usize,
+    #[deprecated]
     swapchain_images: Vec<vk::ImageView>,
 
     pending_mesh_uploads: Vec<Vec<MeshUpload>>,
@@ -83,7 +84,7 @@ impl Renderer {
 
         let swapchain_images = swapchain.image_views.clone();
 
-        let render_pass = VulkanRenderPass::new(swapchain.image_format, &device)?;
+        let render_pass = VulkanRenderPass::new(&device)?;
 
         let viewport = create_viewport(window_extent);
 
@@ -596,6 +597,61 @@ impl Renderer {
 
             device.cmd_end_render_pass(frame.render_cmd);
 
+            let image_barrier = vk::ImageMemoryBarrier2::builder()
+                .image(self.swapchain.images[present_index])
+                .old_layout(vk::ImageLayout::UNDEFINED)
+                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .src_stage_mask(vk::PipelineStageFlags2::TOP_OF_PIPE)
+                .dst_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+                .dst_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_array_layer: 0,
+                    base_mip_level: 0,
+                    layer_count: 1,
+                    level_count: 1,
+                })
+                .build();
+
+            let image_memory_barriers = &[image_barrier];
+            let dependency_info = vk::DependencyInfo::builder()
+                .image_memory_barriers(image_memory_barriers)
+                .dependency_flags(vk::DependencyFlags::BY_REGION);
+
+            device.cmd_pipeline_barrier2(frame.render_cmd, &dependency_info);
+
+            self.blit_image(
+                self.frames[present_index].render_cmd,
+                self.frames[present_index].output_image.image,
+                self.swapchain.images[present_index],
+            );
+
+            let frame = &mut self.frames[present_index];
+
+            let image_barrier = vk::ImageMemoryBarrier2::builder()
+                .image(self.swapchain.images[present_index])
+                .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+                .src_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+                .dst_stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
+                .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                .src_queue_family_index(device.queue_family_index)
+                .dst_queue_family_index(device.queue_family_index)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_array_layer: 0,
+                    base_mip_level: 0,
+                    layer_count: 1,
+                    level_count: 1,
+                })
+                .build();
+
+            let image_memory_barriers = &[image_barrier];
+            let dependency_info =
+                vk::DependencyInfo::builder().image_memory_barriers(image_memory_barriers);
+
+            device.cmd_pipeline_barrier2(frame.render_cmd, &dependency_info);
+
             device.end_command_buffer(frame.render_cmd)?;
 
             let wait_semaphores = [frame.image_available_semaphore];
@@ -642,6 +698,60 @@ impl Renderer {
                 },
                 _ => Ok(()),
             }
+        }
+    }
+
+    fn blit_image(
+        &mut self,
+        cmd: vk::CommandBuffer,
+        output_image: vk::Image,
+        present_image: vk::Image,
+    ) {
+        let blit_region = vk::ImageBlit2::builder()
+            .src_offsets([
+                vk::Offset3D::default(),
+                vk::Offset3D {
+                    x: self.surface_extent.width as i32,
+                    y: self.surface_extent.height as i32,
+                    z: 1,
+                },
+            ])
+            .dst_offsets([
+                vk::Offset3D::default(),
+                vk::Offset3D {
+                    x: self.surface_extent.width as i32,
+                    y: self.surface_extent.height as i32,
+                    z: 1,
+                },
+            ])
+            .src_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .dst_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .build();
+
+        let blit_regions = [blit_region];
+
+        let blit_image_info = vk::BlitImageInfo2::builder()
+            .src_image(output_image)
+            .src_image_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+            .dst_image(present_image)
+            .dst_image_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+            .filter(vk::Filter::LINEAR)
+            .regions(&blit_regions);
+
+        unsafe {
+            VULKAN_GLOBAL_CONTEXT
+                .device()
+                .cmd_blit_image2(cmd, &blit_image_info);
         }
     }
 

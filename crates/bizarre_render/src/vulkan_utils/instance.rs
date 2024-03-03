@@ -29,7 +29,7 @@ pub unsafe fn create_instance(
     let app_info = vk::ApplicationInfo::builder()
         .application_name(app_name)
         .application_version(0)
-        .api_version(vk::make_api_version(0, 1, 1, 0))
+        .api_version(vk::make_api_version(0, 1, 3, 0))
         .engine_name(CStr::from_bytes_with_nul_unchecked(b"Bizarre Engine\0"))
         .engine_version(0);
 
