@@ -1,10 +1,7 @@
-use std::{ffi::CStr, os::raw::c_char, sync::Arc};
+use std::{ffi::CStr, os::raw::c_char};
 
 use anyhow::{anyhow, Result};
-use ash::{
-    extensions::ext::DebugUtils,
-    vk::{self},
-};
+use ash::{extensions::ext::DebugUtils, vk};
 use raw_window_handle::HasRawDisplayHandle;
 
 use super::debug_utils::debug_messenger_create_info;

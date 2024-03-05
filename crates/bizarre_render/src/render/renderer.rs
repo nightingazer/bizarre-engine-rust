@@ -43,7 +43,6 @@ pub struct Renderer {
     render_pass: VulkanRenderPass,
     frames: Vec<VulkanFrame>,
     max_frames_in_flight: usize,
-    current_frame_index: usize,
 
     pending_mesh_uploads: Vec<Vec<MeshUpload>>,
     pending_view_projection: Vec<Option<Mat4>>,
@@ -286,7 +285,6 @@ impl Renderer {
             cmd_pool,
             descriptor_pool,
             frames,
-            current_frame_index: 0,
             max_frames_in_flight,
             surface_extent: window_extent,
             deferred_pipeline,
@@ -331,21 +329,17 @@ impl Renderer {
                 Ok((present_index, false)) => present_index,
                 Ok((_, true)) => {
                     core_debug!("Recreating swapchain: suboptimal");
-                    unsafe {
-                        self.device
-                            .destroy_semaphore(image_available_semaphore, None);
-                    }
-                    self.recreate_swapchain();
+                    self.device
+                        .destroy_semaphore(image_available_semaphore, None);
+                    self.recreate_swapchain()?;
                     return Ok(());
                 }
                 Err(result) => match result {
                     vk::Result::SUBOPTIMAL_KHR | vk::Result::ERROR_OUT_OF_DATE_KHR => {
                         core_debug!("Recreating swapchain: out of date");
-                        unsafe {
-                            self.device
-                                .destroy_semaphore(image_available_semaphore, None);
-                        }
-                        self.recreate_swapchain();
+                        self.device
+                            .destroy_semaphore(image_available_semaphore, None);
+                        self.recreate_swapchain()?;
                         return Ok(());
                     }
                     _ => bail!(result),
@@ -712,12 +706,12 @@ impl Renderer {
 
             match present_result {
                 Ok(true) => {
-                    self.recreate_swapchain();
+                    self.recreate_swapchain()?;
                     Ok(())
                 }
                 Err(err) => match err {
                     vk::Result::ERROR_OUT_OF_DATE_KHR | vk::Result::SUBOPTIMAL_KHR => {
-                        self.recreate_swapchain();
+                        self.recreate_swapchain()?;
                         Ok(())
                     }
                     _ => Err(anyhow!("Renderer: Failed to present an image: {err}")),
@@ -867,24 +861,19 @@ impl Renderer {
 
         self.viewport = create_viewport(self.surface_extent);
 
-        self.recreate_swapchain();
+        self.recreate_swapchain()?;
 
         Ok(())
     }
 
     fn recreate_swapchain(&mut self) -> Result<()> {
         unsafe {
-            self.device.device_wait_idle();
+            self.device.device_wait_idle()?;
         }
 
-        self.swapchain
-            .recreate(&self.surface_extent, self.surface, &self.device)?;
+        self.swapchain.recreate(self.surface, &self.device)?;
 
-        for (frame, image) in self
-            .frames
-            .iter_mut()
-            .zip(self.swapchain.image_views.clone())
-        {
+        for frame in self.frames.iter_mut() {
             frame.recreate(
                 self.surface_extent,
                 *self.render_pass,

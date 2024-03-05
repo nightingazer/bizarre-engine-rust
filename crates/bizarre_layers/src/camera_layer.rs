@@ -187,7 +187,7 @@ impl Layer for CameraLayer {
         Ok(())
     }
 
-    fn on_update(&mut self, event_bus: &EventBus, world: &mut specs::World) -> anyhow::Result<()> {
+    fn on_update(&mut self, _event_bus: &EventBus, world: &mut specs::World) -> anyhow::Result<()> {
         let mut camera_sys = CameraSystem {
             updated_aspect_ratio: self.updated_aspect_ratio,
             view_proj_force_update: self.view_proj_force_update,

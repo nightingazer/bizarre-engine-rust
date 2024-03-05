@@ -88,7 +88,7 @@ pub enum PolygonMode {
 
 impl From<PolygonMode> for vk::PolygonMode {
     fn from(value: PolygonMode) -> Self {
-        unsafe { Self::from_raw(value as i32) }
+        Self::from_raw(value as i32)
     }
 }
 

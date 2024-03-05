@@ -1,5 +1,3 @@
-use ash::vk;
-
 use crate::{
     material::binding::{BindingType, MaterialBinding},
     vulkan_utils::shader::ShaderStage,

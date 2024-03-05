@@ -1,4 +1,3 @@
-use ash::vk;
 use nalgebra_glm::Vec3;
 
 use crate::{

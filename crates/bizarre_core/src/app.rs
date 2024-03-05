@@ -3,7 +3,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Result;
 use bizarre_events::observer::{EventBus, Observer};
 use bizarre_logger::{core_critical, core_info, global_loggers::logging_thread_join};
 use specs::WorldExt;
@@ -13,7 +12,7 @@ use crate::{
     app_events::AppCloseRequestedEvent,
     debug_stats::DebugStats,
     layer::Layer,
-    schedule::{Schedule, ScheduleBuilder},
+    schedule::Schedule,
 };
 
 use bizarre_common::resources::{DeltaTime, RunningTime};

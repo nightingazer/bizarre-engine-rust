@@ -1,5 +1,5 @@
 use core::slice::SlicePattern;
-use std::{ffi::CStr, marker::PhantomData, path::Path};
+use std::{ffi::CStr, path::Path};
 
 use anyhow::Result;
 use ash::vk;
@@ -11,7 +11,6 @@ use crate::{
         pass::MaterialPassType,
         pipeline_features::{PipelineFeatureFlags, PipelineFeatures},
     },
-    vertex::Vertex,
     vulkan_utils::shader::{load_shader, ShaderStage},
 };
 
@@ -149,29 +148,6 @@ impl VulkanPipeline {
             .attachments(&color_blend_attachments);
 
         let set_layout = {
-            let base_bindings = match requirements.pass_type {
-                MaterialPassType::Geometry => vec![vk::DescriptorSetLayoutBinding::builder()
-                    .binding(0)
-                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                    .stage_flags(vk::ShaderStageFlags::VERTEX)
-                    .build()],
-                MaterialPassType::Lighting => vec![
-                    vk::DescriptorSetLayoutBinding::builder()
-                        .binding(0)
-                        .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
-                        .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-                        .build(),
-                    vk::DescriptorSetLayoutBinding::builder()
-                        .binding(1)
-                        .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
-                        .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-                        .build(),
-                ],
-                MaterialPassType::Translucent => {
-                    vec![vk::DescriptorSetLayoutBinding::builder().binding(0).build()]
-                }
-            };
-
             let set_bindings = requirements
                 .bindings
                 .iter()

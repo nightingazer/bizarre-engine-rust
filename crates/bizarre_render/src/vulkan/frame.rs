@@ -4,10 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use ash::{
-    util::Align,
-    vk::{self, ImageUsageFlags, SampleCountFlags},
-};
+use ash::{util::Align, vk};
 
 use nalgebra_glm::{vec3, Mat4};
 
@@ -596,7 +593,7 @@ impl VulkanFrame {
         }
     }
 
-    fn update_sets_with_images(&mut self, device: &VulkanDevice) -> Result<()> {
+    fn update_sets_with_images(&mut self, device: &VulkanDevice) {
         let color_input_info = [vk::DescriptorImageInfo::builder()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view(self.color_image.view)
@@ -639,8 +636,6 @@ impl VulkanFrame {
         ];
 
         unsafe { device.update_descriptor_sets(&set_writes, &[]) };
-
-        Ok(())
     }
 }
 

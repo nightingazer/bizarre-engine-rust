@@ -1,14 +1,8 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
-use ash::vk;
+use crate::{vulkan::pipeline::VulkanPipeline, vulkan_utils::shader::ShaderStage};
 
-use crate::{
-    vulkan::pipeline::{VulkanPipeline, VulkanPipelineRequirements},
-    vulkan_utils::shader::ShaderStage,
-};
-
-use super::{binding::MaterialBinding, pipeline_features::PipelineFeatures};
+use super::binding::MaterialBinding;
 
 #[repr(usize)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]

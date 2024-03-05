@@ -1,32 +1,27 @@
-use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::bail;
-use anyhow::Result;
-use bizarre_core::core_events::WindowResized;
-use bizarre_core::input::InputHandler;
-use bizarre_core::input::MouseButton;
-use bizarre_core::schedule::ScheduleBuilder;
-use bizarre_core::specs;
+use anyhow::{bail, Result};
+
 use bizarre_core::{
     app_events::AppCloseRequestedEvent,
+    core_events::WindowResized,
+    input::{InputHandler, MouseButton},
     layer::Layer,
-    specs::{ReadStorage, System, WorldExt, Write},
+    schedule::ScheduleBuilder,
 };
-use bizarre_events::observer;
-use bizarre_events::observer::EventBus;
-use bizarre_events::observer::Observer;
-use bizarre_logger::core_info;
-use bizarre_render::render_components::transform::TransformComponent;
-use bizarre_render::render_components::MeshComponent;
-use bizarre_render::render_systems::DrawMeshSystem;
-use bizarre_render::render_systems::MeshManagementSystem;
-use bizarre_render::Renderer;
-use bizarre_render::{render_math::DirectionalLight, render_submitter::RenderSubmitter};
-use specs::Join;
-use winit::platform::pump_events::EventLoopExtPumpEvents;
-use winit::platform::pump_events::PumpStatus;
-use winit::platform::scancode::PhysicalKeyExtScancode;
+use bizarre_events::observer::{EventBus, Observer, SyncObserver};
+use bizarre_render::{
+    render_components::{transform::TransformComponent, MeshComponent},
+    render_math::DirectionalLight,
+    render_submitter::RenderSubmitter,
+    render_systems::{DrawMeshSystem, MeshManagementSystem},
+    Renderer,
+};
+use specs::{Join, ReadStorage, System, WorldExt, Write};
+use winit::platform::{
+    pump_events::{EventLoopExtPumpEvents, PumpStatus},
+    scancode::PhysicalKeyExtScancode,
+};
 
 pub struct VisualLayer {
     event_loop: winit::event_loop::EventLoop<()>,
@@ -68,7 +63,7 @@ impl<'a> System<'a> for LightSystem {
 }
 
 impl Observer for VisualLayer {
-    fn initialize(event_bus: &EventBus, system: observer::SyncObserver<Self>) {
+    fn initialize(event_bus: &EventBus, system: SyncObserver<Self>) {
         event_bus.subscribe(system, Self::handle_window_resize);
     }
 }
@@ -87,7 +82,7 @@ impl VisualLayer {
         _elwt: &winit::event_loop::EventLoopWindowTarget<E>,
         input_handler: &mut InputHandler,
         event_bus: &EventBus,
-        window: &winit::window::Window,
+        _window: &winit::window::Window,
         loop_result: &mut anyhow::Result<()>,
     ) where
         E: 'static,
@@ -153,13 +148,6 @@ impl VisualLayer {
                         }
                     };
                     *loop_result = input_handler.process_mouse_scroll(delta);
-                }
-                w_event::WindowEvent::Resized(size) => {
-                    core_info!("event_loop: window got resized");
-                    event_bus.push_event(WindowResized {
-                        height: size.height as f32,
-                        width: size.width as f32,
-                    })
                 }
                 _ => (),
             }
@@ -253,7 +241,7 @@ impl Layer for VisualLayer {
         }
     }
 
-    fn on_detach(&mut self, event_bus: &EventBus, world: &mut specs::World) {
+    fn on_detach(&mut self, _event_bus: &EventBus, _world: &mut specs::World) {
         self.renderer
             .as_mut()
             .expect("There is no renderer to destroy")
