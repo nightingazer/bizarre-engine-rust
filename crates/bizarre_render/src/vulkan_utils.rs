@@ -4,4 +4,3 @@ pub mod framebuffer;
 pub mod instance;
 pub mod pipeline;
 pub mod shader;
-pub mod vulkan_memory;

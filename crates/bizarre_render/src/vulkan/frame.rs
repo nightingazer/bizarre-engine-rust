@@ -6,13 +6,12 @@ use std::{
 use anyhow::{bail, Result};
 use ash::{
     util::Align,
-    vk::{self, ImageUsageFlags},
+    vk::{self, ImageUsageFlags, SampleCountFlags},
 };
 
 use nalgebra_glm::{vec3, Mat4};
 
 use crate::{
-    global_context::VULKAN_GLOBAL_CONTEXT,
     mesh::Mesh,
     mesh_loader::MeshHandle,
     vertex::MeshVertex,
@@ -20,7 +19,7 @@ use crate::{
     vulkan_utils::{buffer::create_buffer, framebuffer::create_framebuffer},
 };
 
-use super::image::VulkanImage;
+use super::{device::VulkanDevice, image::VulkanImage};
 
 const VBO_SIZE: usize = 10000 * size_of::<MeshVertex>();
 const IBO_SIZE: usize = 100000 * size_of::<u32>();
@@ -88,10 +87,11 @@ pub struct VulkanFrameInfo {
     pub ambient_set_layout: vk::DescriptorSetLayout,
     pub directional_set_layout: vk::DescriptorSetLayout,
     pub floor_set_layout: vk::DescriptorSetLayout,
+    pub samples: vk::SampleCountFlags,
 }
 
 impl VulkanFrame {
-    pub fn new(info: &VulkanFrameInfo, device: &ash::Device) -> Result<Self> {
+    pub fn new(info: &VulkanFrameInfo, device: &VulkanDevice) -> Result<Self> {
         let (image_available_semaphore, render_finished_semaphore) = unsafe {
             let semaphore_create_info = vk::SemaphoreCreateInfo::default();
 
@@ -107,7 +107,7 @@ impl VulkanFrame {
         };
 
         let (output_image, depth_image, color_image, normals_image, resolve_image) =
-            create_frame_images(extent)?;
+            create_frame_images(extent, info.samples, device)?;
 
         let framebuffer_attachments = [
             output_image.view,
@@ -116,8 +116,12 @@ impl VulkanFrame {
             normals_image.view,
             resolve_image.view,
         ];
-        let framebuffer =
-            create_framebuffer(&framebuffer_attachments, info.extent, info.render_pass)?;
+        let framebuffer = create_framebuffer(
+            &framebuffer_attachments,
+            info.extent,
+            info.render_pass,
+            device,
+        )?;
 
         let cmd_allocation_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(info.cmd_pool)
@@ -137,18 +141,21 @@ impl VulkanFrame {
             VBO_SIZE,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            device,
         )?;
 
         let (mesh_ibo, mesh_ibo_memory) = create_buffer(
             IBO_SIZE,
             vk::BufferUsageFlags::INDEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            device,
         )?;
 
         let (deferred_ubo, deferred_ubo_memory) = create_buffer(
             size_of::<deferred::Ubo>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            device,
         )?;
 
         unsafe {
@@ -173,6 +180,7 @@ impl VulkanFrame {
             size_of::<ambient::Ubo>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            device,
         )?;
 
         unsafe {
@@ -196,6 +204,7 @@ impl VulkanFrame {
             size_of::<directional::Ubo>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            device,
         )?;
 
         unsafe {
@@ -221,6 +230,7 @@ impl VulkanFrame {
             std::mem::size_of::<floor::Ubo>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            device,
         )?;
 
         unsafe {
@@ -391,8 +401,7 @@ impl VulkanFrame {
         Ok(vulkan_frame)
     }
 
-    pub fn upload_meshes(&mut self, meshes: &[*const Mesh]) -> Result<()> {
-        let device = VULKAN_GLOBAL_CONTEXT.device();
+    pub fn upload_meshes(&mut self, meshes: &[*const Mesh], device: &VulkanDevice) -> Result<()> {
         let (meshes, vbo_len, ibo_len) = meshes
             .iter()
             .map(|m| unsafe { &**m })
@@ -474,11 +483,10 @@ impl VulkanFrame {
     pub fn recreate(
         &mut self,
         extent: vk::Extent2D,
-        present_image: vk::ImageView,
         render_pass: vk::RenderPass,
+        samples: vk::SampleCountFlags,
+        device: &VulkanDevice,
     ) -> Result<()> {
-        let device = VULKAN_GLOBAL_CONTEXT.device();
-
         self.destroy_images(device);
 
         let extent_3d = vk::Extent3D {
@@ -487,7 +495,8 @@ impl VulkanFrame {
             width: extent.width,
         };
 
-        let (output, depth, color, normal, resolve) = create_frame_images(extent_3d)?;
+        let (output, depth, color, normal, resolve) =
+            create_frame_images(extent_3d, samples, device)?;
 
         unsafe {
             device.destroy_framebuffer(self.framebuffer, None);
@@ -501,7 +510,7 @@ impl VulkanFrame {
             resolve.view,
         ];
 
-        self.framebuffer = create_framebuffer(&attachments, extent, render_pass)?;
+        self.framebuffer = create_framebuffer(&attachments, extent, render_pass, device)?;
 
         self.output_image = output;
         self.depth_image = depth;
@@ -509,7 +518,7 @@ impl VulkanFrame {
         self.normals_image = normal;
         self.resolve_image = resolve;
 
-        self.update_sets_with_images();
+        self.update_sets_with_images(device);
 
         Ok(())
     }
@@ -587,7 +596,7 @@ impl VulkanFrame {
         }
     }
 
-    fn update_sets_with_images(&mut self) -> Result<()> {
+    fn update_sets_with_images(&mut self, device: &VulkanDevice) -> Result<()> {
         let color_input_info = [vk::DescriptorImageInfo::builder()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view(self.color_image.view)
@@ -629,11 +638,7 @@ impl VulkanFrame {
                 .build(),
         ];
 
-        unsafe {
-            VULKAN_GLOBAL_CONTEXT
-                .device()
-                .update_descriptor_sets(&set_writes, &[])
-        };
+        unsafe { device.update_descriptor_sets(&set_writes, &[]) };
 
         Ok(())
     }
@@ -641,6 +646,8 @@ impl VulkanFrame {
 
 fn create_frame_images(
     extent: vk::Extent3D,
+    samples: vk::SampleCountFlags,
+    device: &VulkanDevice,
 ) -> Result<(
     VulkanImage,
     VulkanImage,
@@ -648,14 +655,14 @@ fn create_frame_images(
     VulkanImage,
     VulkanImage,
 )> {
-    let sample_count = VULKAN_GLOBAL_CONTEXT.max_msaa();
     let output_image = VulkanImage::new(
         extent,
         vk::Format::R16G16B16A16_SFLOAT,
         vk::ImageAspectFlags::COLOR,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        sample_count,
+        samples,
+        device,
     )?;
     let depth_image = VulkanImage::new(
         extent,
@@ -663,7 +670,8 @@ fn create_frame_images(
         vk::ImageAspectFlags::DEPTH,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        sample_count,
+        samples,
+        device,
     )?;
     let color_image = VulkanImage::new(
         extent,
@@ -671,7 +679,8 @@ fn create_frame_images(
         vk::ImageAspectFlags::COLOR,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        sample_count,
+        samples,
+        device,
     )?;
     let normals_image = VulkanImage::new(
         extent,
@@ -679,7 +688,8 @@ fn create_frame_images(
         vk::ImageAspectFlags::COLOR,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        sample_count,
+        samples,
+        device,
     )?;
     let resolve_image = VulkanImage::new(
         extent,
@@ -688,6 +698,7 @@ fn create_frame_images(
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::SampleCountFlags::TYPE_1,
+        device,
     )?;
     Ok((
         output_image,

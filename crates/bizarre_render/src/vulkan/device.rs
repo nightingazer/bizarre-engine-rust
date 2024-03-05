@@ -12,6 +12,7 @@ use super::instance::VulkanInstance;
 pub struct VulkanDevice {
     pub handle: ash::Device,
     pub physical_device: vk::PhysicalDevice,
+    pub memory_props: vk::PhysicalDeviceMemoryProperties,
     pub graphics_queue: vk::Queue,
     pub present_queue: vk::Queue,
     pub queue_family_index: u32,
@@ -136,13 +137,31 @@ impl VulkanDevice {
             (graphics_queue, present_queue)
         };
 
+        let memory_props = unsafe { instance.get_physical_device_memory_properties(*pdevice) };
+
         Ok(Self {
             handle: device,
             physical_device: *pdevice,
+            memory_props,
             graphics_queue,
             present_queue,
             queue_family_index,
         })
+    }
+
+    pub fn find_memory_type_index(
+        &self,
+        memory_req: &vk::MemoryRequirements,
+        flags: vk::MemoryPropertyFlags,
+    ) -> Option<u32> {
+        self.memory_props.memory_types[..self.memory_props.memory_type_count as _]
+            .iter()
+            .enumerate()
+            .find(|(i, memory_type)| {
+                (1 << i) & memory_req.memory_type_bits != 0
+                    && memory_type.property_flags & flags == flags
+            })
+            .map(|(i, _)| i as u32)
     }
 
     pub fn destroy(&self) {

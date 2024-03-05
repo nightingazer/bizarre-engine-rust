@@ -21,10 +21,8 @@ impl Layer for SandboxLayer {
         world: &mut bizarre_engine::core::specs::World,
         _schedule_builder: &mut bizarre_engine::core::schedule::ScheduleBuilder,
     ) -> Result<()> {
-        let smooth_monkey_mesh = get_mesh_loader_mut().load_obj(
-            "assets/models/smooth_monkey.obj".into(),
-            Some(&["smooth_monkey".into()]),
-        )?[0];
+        let monkey_mesh = get_mesh_loader_mut()
+            .load_obj("assets/models/monkey.obj".into(), Some(&["monkey".into()]))?[0];
 
         let cube_mesh = get_mesh_loader_mut()
             .load_obj("assets/models/cube.obj".into(), Some(&["cube".into()]))?[0];
@@ -49,7 +47,7 @@ impl Layer for SandboxLayer {
                         position: [x as f32, 3.0, z as f32].into(),
                         ..Default::default()
                     })
-                    .with(MeshComponent(smooth_monkey_mesh))
+                    .with(MeshComponent(monkey_mesh))
                     .build();
             }
         }

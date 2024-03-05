@@ -17,7 +17,6 @@ use bizarre_events::observer;
 use bizarre_events::observer::EventBus;
 use bizarre_events::observer::Observer;
 use bizarre_logger::core_info;
-use bizarre_render::global_context::init_vulkan_global_context;
 use bizarre_render::render_components::transform::TransformComponent;
 use bizarre_render::render_components::MeshComponent;
 use bizarre_render::render_systems::DrawMeshSystem;
@@ -175,7 +174,6 @@ impl Layer for VisualLayer {
         world: &mut specs::World,
         schedule_builder: &mut ScheduleBuilder,
     ) -> Result<()> {
-        init_vulkan_global_context(&self.window)?;
         let renderer = Renderer::new(&self.window);
         let renderer = match renderer {
             Ok(r) => r,

@@ -6,7 +6,6 @@ use ash::vk;
 use bizarre_logger::core_warn;
 
 use crate::{
-    global_context::VULKAN_GLOBAL_CONTEXT,
     material::{
         binding::MaterialBinding,
         pass::MaterialPassType,
@@ -40,10 +39,14 @@ pub struct VulkanPipelineRequirements<'a> {
     pub base_pipeline: Option<&'a VulkanPipeline>,
     pub vertex_bindings: Box<[vk::VertexInputBindingDescription]>,
     pub vertex_attributes: Box<[vk::VertexInputAttributeDescription]>,
+    pub sample_count: vk::SampleCountFlags,
 }
 
 impl VulkanPipeline {
-    pub fn from_requirements(requirements: &VulkanPipelineRequirements) -> Result<VulkanPipeline> {
+    pub fn from_requirements(
+        requirements: &VulkanPipelineRequirements,
+        device: &ash::Device,
+    ) -> Result<VulkanPipeline> {
         let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
 
         let dynamic_state_info =
@@ -78,7 +81,7 @@ impl VulkanPipeline {
 
         let multisampling_info = vk::PipelineMultisampleStateCreateInfo::builder()
             .sample_shading_enable(false)
-            .rasterization_samples(VULKAN_GLOBAL_CONTEXT.max_msaa());
+            .rasterization_samples(requirements.sample_count);
 
         let color_blend_attachments = {
             let mut attachments = Vec::with_capacity(requirements.attachment_count);
@@ -146,6 +149,29 @@ impl VulkanPipeline {
             .attachments(&color_blend_attachments);
 
         let set_layout = {
+            let base_bindings = match requirements.pass_type {
+                MaterialPassType::Geometry => vec![vk::DescriptorSetLayoutBinding::builder()
+                    .binding(0)
+                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                    .stage_flags(vk::ShaderStageFlags::VERTEX)
+                    .build()],
+                MaterialPassType::Lighting => vec![
+                    vk::DescriptorSetLayoutBinding::builder()
+                        .binding(0)
+                        .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                        .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+                        .build(),
+                    vk::DescriptorSetLayoutBinding::builder()
+                        .binding(1)
+                        .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                        .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+                        .build(),
+                ],
+                MaterialPassType::Translucent => {
+                    vec![vk::DescriptorSetLayoutBinding::builder().binding(0).build()]
+                }
+            };
+
             let set_bindings = requirements
                 .bindings
                 .iter()
@@ -154,21 +180,13 @@ impl VulkanPipeline {
 
             let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&set_bindings);
 
-            unsafe {
-                VULKAN_GLOBAL_CONTEXT
-                    .device()
-                    .create_descriptor_set_layout(&create_info, None)?
-            }
+            unsafe { device.create_descriptor_set_layout(&create_info, None)? }
         };
 
         let layout = {
             let layouts = [set_layout];
             let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&layouts);
-            unsafe {
-                VULKAN_GLOBAL_CONTEXT
-                    .device()
-                    .create_pipeline_layout(&layout_info, None)?
-            }
+            unsafe { device.create_pipeline_layout(&layout_info, None)? }
         };
 
         let (modules, stages): (Vec<_>, Vec<_>) = requirements
@@ -179,11 +197,7 @@ impl VulkanPipeline {
 
                 let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
 
-                let module = unsafe {
-                    VULKAN_GLOBAL_CONTEXT
-                        .device()
-                        .create_shader_module(&create_info, None)?
-                };
+                let module = unsafe { device.create_shader_module(&create_info, None)? };
 
                 let stage = vk::PipelineShaderStageCreateInfo::builder()
                     .stage(vk::ShaderStageFlags::from(*stage))
@@ -237,17 +251,14 @@ impl VulkanPipeline {
             .build();
 
         let pipeline = unsafe {
-            VULKAN_GLOBAL_CONTEXT
-                .device()
+            device
                 .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_create_info], None)
                 .map_err(|(_, e)| e)?
         };
 
         for module in modules {
             unsafe {
-                VULKAN_GLOBAL_CONTEXT
-                    .device()
-                    .destroy_shader_module(module, None);
+                device.destroy_shader_module(module, None);
             }
         }
 
@@ -258,10 +269,8 @@ impl VulkanPipeline {
         })
     }
 
-    pub fn destroy(&mut self) {
+    pub fn destroy(&mut self, device: &ash::Device) {
         unsafe {
-            let device = VULKAN_GLOBAL_CONTEXT.device();
-
             device.destroy_pipeline_layout(self.layout, None);
             self.layout = vk::PipelineLayout::null();
 

@@ -1,9 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use ash::{extensions::khr, vk};
-
-use crate::global_context::VULKAN_GLOBAL_CONTEXT;
 
 use super::{device::VulkanDevice, image::VulkanImage, instance::VulkanInstance};
 
@@ -66,6 +64,7 @@ impl VulkanSwapchain {
             surface_format,
             &present_modes,
             &swapchain_loader,
+            device,
         )?;
 
         let (images, image_views) =
@@ -83,10 +82,13 @@ impl VulkanSwapchain {
         })
     }
 
-    pub fn recreate(&mut self, extent: &vk::Extent2D, surface: vk::SurfaceKHR) -> Result<()> {
-        self.destroy();
-
-        let device = VULKAN_GLOBAL_CONTEXT.device();
+    pub fn recreate(
+        &mut self,
+        extent: &vk::Extent2D,
+        surface: vk::SurfaceKHR,
+        device: &VulkanDevice,
+    ) -> Result<()> {
+        self.destroy(device);
 
         let (surface_capabilities, present_modes) = unsafe {
             let surface_capabilities = self
@@ -107,6 +109,7 @@ impl VulkanSwapchain {
             self.surface_format,
             &present_modes,
             &self.swapchain_loader,
+            device,
         )?;
 
         (self.images, self.image_views) = create_images(
@@ -119,11 +122,7 @@ impl VulkanSwapchain {
         Ok(())
     }
 
-    pub fn get_image_views(&self) -> Result<Vec<vk::ImageView>> {
-        Ok(self.image_views.clone())
-    }
-
-    pub fn destroy(&mut self) -> Result<()> {
+    pub fn destroy(&mut self, device: &VulkanDevice) -> Result<()> {
         #[cfg(debug_assertions)]
         {
             if self.handle == vk::SwapchainKHR::null() {
@@ -143,8 +142,6 @@ impl VulkanSwapchain {
             }
         }
 
-        let device = VULKAN_GLOBAL_CONTEXT.device();
-
         unsafe {
             self.image_views.iter_mut().for_each(|image| {
                 device.destroy_image_view(*image, None);
@@ -163,6 +160,7 @@ fn create_swapchain(
     surface_format: vk::SurfaceFormatKHR,
     present_modes: &Vec<vk::PresentModeKHR>,
     swapchain_loader: &khr::Swapchain,
+    device: &VulkanDevice,
 ) -> Result<vk::SwapchainKHR> {
     let mut desired_image_count = surface_capabilities.min_image_count + 1;
     if surface_capabilities.max_image_count > 0

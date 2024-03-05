@@ -1,9 +1,9 @@
 use std::ops::{Deref, DerefMut};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use ash::vk;
 
-use crate::global_context::VULKAN_GLOBAL_CONTEXT;
+use super::device::VulkanDevice;
 
 pub struct VulkanRenderPass {
     pub handle: vk::RenderPass,
@@ -14,10 +14,10 @@ pub struct VulkanRenderPass {
 }
 
 impl VulkanRenderPass {
-    pub fn new(device: &ash::Device) -> Result<Self> {
+    pub fn new(samples: vk::SampleCountFlags, device: &VulkanDevice) -> Result<Self> {
         let output_attachment = vk::AttachmentDescription::builder()
             .format(vk::Format::R16G16B16A16_SFLOAT)
-            .samples(VULKAN_GLOBAL_CONTEXT.max_msaa())
+            .samples(samples)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
             .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
@@ -28,7 +28,7 @@ impl VulkanRenderPass {
 
         let depth_attachment = vk::AttachmentDescription::builder()
             .format(vk::Format::D32_SFLOAT)
-            .samples(VULKAN_GLOBAL_CONTEXT.max_msaa())
+            .samples(samples)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
@@ -37,7 +37,7 @@ impl VulkanRenderPass {
 
         let color_attachment = vk::AttachmentDescription::builder()
             .format(vk::Format::R16G16B16A16_SFLOAT)
-            .samples(VULKAN_GLOBAL_CONTEXT.max_msaa())
+            .samples(samples)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
@@ -46,7 +46,7 @@ impl VulkanRenderPass {
 
         let normals_attachment = vk::AttachmentDescription::builder()
             .format(vk::Format::R16G16B16A16_SFLOAT)
-            .samples(VULKAN_GLOBAL_CONTEXT.max_msaa())
+            .samples(samples)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
