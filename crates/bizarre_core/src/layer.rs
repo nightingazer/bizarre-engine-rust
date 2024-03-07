@@ -1,5 +1,4 @@
 use anyhow::Result;
-use bizarre_events::observer::EventBus;
 
 use crate::{app_builder::AppBuilder, schedule::ScheduleBuilder};
 

@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::anyhow;
 use ash::vk::ExtPrimitivesGeneratedQueryFn;
-use bizarre_events::event::EventQueue;
 use bizarre_logger::core_error;
 use specs::{Read, System, Write};
 

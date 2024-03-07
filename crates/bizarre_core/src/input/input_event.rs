@@ -1,5 +1,4 @@
 use bitflags::bitflags;
-use bizarre_events::event::Event;
 
 use super::{key_codes::KeyboardKey, mouse_button::MouseButton};
 
@@ -45,8 +44,6 @@ pub enum MouseEvent {
     },
 }
 
-impl Event for MouseEvent {}
-
 #[derive(Debug, Clone)]
 pub enum KeyboardEvent {
     Pressed {
@@ -58,5 +55,3 @@ pub enum KeyboardEvent {
         modifiers: KeyboardModifiers,
     },
 }
-
-impl Event for KeyboardEvent {}

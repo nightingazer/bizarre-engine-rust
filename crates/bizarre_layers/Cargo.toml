@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 bizarre_core = { path = "../bizarre_core" }
-bizarre_events = { path = "../bizarre_events" }
 bizarre_render = { path = "../bizarre_render" }
 bizarre_common = { path = "../bizarre_common" }
 bizarre_logger = { path = "../bizarre_logger" }

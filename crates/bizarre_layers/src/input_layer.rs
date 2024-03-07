@@ -5,8 +5,7 @@ use bizarre_core::{
     layer::Layer,
     schedule::{ScheduleBuilder, ScheduleType},
 };
-use bizarre_events::{event::EventQueue, observer::EventBus};
-use specs::{System, WorldExt, Write};
+use specs::{shrev::EventChannel, System, WorldExt, Write};
 
 use crate::visual_layer::WinitEventSystem;
 
@@ -22,8 +21,8 @@ impl InputHandlerUpdate {
 impl<'a> System<'a> for InputHandlerUpdate {
     type SystemData = (
         Write<'a, InputHandler>,
-        Write<'a, EventQueue<MouseEvent>>,
-        Write<'a, EventQueue<KeyboardEvent>>,
+        Write<'a, EventChannel<MouseEvent>>,
+        Write<'a, EventChannel<KeyboardEvent>>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
@@ -34,9 +33,6 @@ impl<'a> System<'a> for InputHandlerUpdate {
 
 impl Layer for InputLayer {
     fn on_attach(&mut self, app_builder: &mut AppBuilder) -> Result<()> {
-        app_builder.add_event::<MouseEvent>();
-        app_builder.add_event::<KeyboardEvent>();
-
         app_builder.world.insert(InputHandler::default());
 
         app_builder.add_system(

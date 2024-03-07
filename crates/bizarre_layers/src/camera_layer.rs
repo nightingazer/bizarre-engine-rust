@@ -6,32 +6,35 @@ use bizarre_core::{
     schedule::{ScheduleBuilder, ScheduleType},
 };
 
-use bizarre_events::{
-    event::EventQueue,
-    observer::{EventBus, Observer},
-};
 use bizarre_logger::core_warn;
 use bizarre_render::{
     render_components::{free_camera::FreeCameraComponent, ActiveCamera, Camera, CameraProjection},
     render_submitter::RenderSubmitter,
 };
 use nalgebra_glm::{vec3, Vec2};
-use specs::{Builder, Join, Read, ReadStorage, RunNow, System, WorldExt, Write, WriteStorage};
+use specs::{
+    shrev::EventChannel, Builder, Join, Read, ReadStorage, ReaderId, RunNow, System, WorldExt,
+    Write, WriteStorage,
+};
 
-struct CameraSystem {}
+#[derive(Default)]
+struct CameraSystem {
+    reader_id: Option<ReaderId<WindowResized>>,
+}
 
 impl<'a> System<'a> for CameraSystem {
     type SystemData = (
         Write<'a, RenderSubmitter>,
         Read<'a, InputHandler>,
         Read<'a, DeltaTime>,
-        Read<'a, EventQueue<WindowResized>>,
+        Read<'a, EventChannel<WindowResized>>,
         WriteStorage<'a, FreeCameraComponent>,
         ReadStorage<'a, ActiveCamera>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
-        let (mut submitter, input, delta_time, window_resize_eq, mut cameras, active_camera) = data;
+        let (mut submitter, input, delta_time, window_resize_channel, mut cameras, active_camera) =
+            data;
 
         let delta_time = delta_time.0.as_secs_f32();
         const BASE_CAMERA_SPEED: f32 = 10.0;
@@ -50,7 +53,10 @@ impl<'a> System<'a> for CameraSystem {
 
         let (camera, _) = active_camera.unwrap();
 
-        let projection_updated = match window_resize_eq.get_events().iter().last() {
+        let projection_updated = match window_resize_channel
+            .read(&mut self.reader_id.as_mut().unwrap())
+            .last()
+        {
             Some(ev) => {
                 camera.update_aspect_ratio(ev.width / ev.height);
                 true
@@ -140,6 +146,14 @@ impl<'a> System<'a> for CameraSystem {
             submitter.update_projection(camera.get_projection_mat());
         }
     }
+
+    fn setup(&mut self, world: &mut specs::prelude::World) {
+        self.reader_id = Some(
+            world
+                .fetch_mut::<EventChannel<WindowResized>>()
+                .register_reader(),
+        )
+    }
 }
 
 #[derive(Default)]
@@ -171,7 +185,12 @@ impl Layer for CameraLayer {
             .with(ActiveCamera)
             .build();
 
-        app_builder.add_system(ScheduleType::Frame, CameraSystem {}, "camera_system", &[]);
+        app_builder.add_system(
+            ScheduleType::Frame,
+            CameraSystem::default(),
+            "camera_system",
+            &[],
+        );
 
         Ok(())
     }

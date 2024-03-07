@@ -12,7 +12,6 @@ use bizarre_core::{
     layer::Layer,
     schedule::ScheduleType,
 };
-use bizarre_events::event::EventQueue;
 use bizarre_logger::core_debug;
 use bizarre_render::{
     render_components::WindowComponent,
@@ -21,7 +20,9 @@ use bizarre_render::{
     render_systems::{MeshManagementSystem, RendererResource, RendererUpdateSystem},
     Renderer,
 };
-use specs::{Builder, Join, Read, ReadStorage, System, WorldExt, Write};
+use specs::{
+    shrev::EventChannel, Builder, Join, Read, ReadStorage, ReaderId, System, WorldExt, Write,
+};
 use winit::{
     dpi::LogicalSize,
     platform::{pump_events::EventLoopExtPumpEvents, scancode::PhysicalKeyExtScancode},
@@ -54,7 +55,6 @@ impl Layer for VisualLayer {
             .with(WindowComponent { handle: window })
             .build();
 
-        app_builder.add_event::<WindowResized>();
         app_builder.add_system(
             ScheduleType::Frame,
             WinitEventSystem,
@@ -75,7 +75,7 @@ impl Layer for VisualLayer {
         );
         app_builder.add_system(
             ScheduleType::Frame,
-            RendererResizeSystem,
+            RendererResizeSystem::default(),
             "renderer_resize",
             &[],
         );
@@ -93,17 +93,20 @@ impl Layer for VisualLayer {
     }
 }
 
-pub struct RendererResizeSystem;
+#[derive(Default)]
+pub struct RendererResizeSystem {
+    reader_id: Option<ReaderId<WindowResized>>,
+}
 
 impl<'a> System<'a> for RendererResizeSystem {
     type SystemData = (
-        Read<'a, EventQueue<WindowResized>>,
+        Read<'a, EventChannel<WindowResized>>,
         Write<'a, RendererResource>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
         let (events, mut renderer) = data;
-        let events = events.get_events();
+        let events = events.read(self.reader_id.as_mut().unwrap());
 
         if let Some(resize) = events.last() {
             core_debug!("RenderResizeSystem: resize {:?}", resize);
@@ -112,6 +115,14 @@ impl<'a> System<'a> for RendererResizeSystem {
                 .unwrap()
                 .resize([resize.width as u32, resize.height as u32])
         }
+    }
+
+    fn setup(&mut self, world: &mut specs::prelude::World) {
+        self.reader_id = Some(
+            world
+                .fetch_mut::<EventChannel<WindowResized>>()
+                .register_reader(),
+        );
     }
 }
 
@@ -161,22 +172,22 @@ impl WinitEventSystem {
         event: winit::event::Event<E>,
         data: &mut (
             &mut InputHandler,
-            &mut EventQueue<AppCloseRequestedEvent>,
-            &mut EventQueue<WindowResized>,
+            &mut EventChannel<AppCloseRequestedEvent>,
+            &mut EventChannel<WindowResized>,
         ),
     ) {
         use winit::event as w_event;
 
-        let (input_handler, app_close_eq, window_resize_eq) = data;
+        let (input_handler, app_close_channel, window_resize_channel) = data;
 
         if let w_event::Event::WindowEvent { event, .. } = event {
             match event {
                 w_event::WindowEvent::CloseRequested => {
-                    app_close_eq.push_event(AppCloseRequestedEvent)
+                    app_close_channel.single_write(AppCloseRequestedEvent)
                 }
                 w_event::WindowEvent::Resized(size) => {
                     let size = [size.width, size.height];
-                    window_resize_eq.push_event(WindowResized {
+                    window_resize_channel.single_write(WindowResized {
                         width: size[0] as f32,
                         height: size[1] as f32,
                     });
@@ -236,8 +247,8 @@ impl<'a> specs::System<'a> for WinitEventSystem {
     type SystemData = (
         Write<'a, WinitEventLoopResource>,
         Write<'a, InputHandler>,
-        Write<'a, EventQueue<AppCloseRequestedEvent>>,
-        Write<'a, EventQueue<WindowResized>>,
+        Write<'a, EventChannel<AppCloseRequestedEvent>>,
+        Write<'a, EventChannel<WindowResized>>,
     );
 
     fn run(&mut self, data: Self::SystemData) {

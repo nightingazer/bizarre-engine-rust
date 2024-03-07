@@ -1,6 +1,4 @@
-use bizarre_events::event::Event;
+use specs::shrev::Event;
 
 #[derive(Debug, Clone)]
 pub struct AppCloseRequestedEvent;
-
-impl Event for AppCloseRequestedEvent {}

@@ -1,5 +1,5 @@
-use bizarre_events::{event::EventQueue, observer::EventBus};
 use nalgebra_glm::Vec2;
+use specs::shrev::EventChannel;
 
 use crate::input::{key_codes::KeyboardKey, KeyboardEvent};
 
@@ -124,7 +124,10 @@ impl InputHandler {
 
     pub fn update(
         &mut self,
-        event_queues: &mut (&mut EventQueue<MouseEvent>, &mut EventQueue<KeyboardEvent>),
+        event_queues: &mut (
+            &mut EventChannel<MouseEvent>,
+            &mut EventChannel<KeyboardEvent>,
+        ),
     ) {
         if self.mouse_wheel_delta[0] != 0.0 || self.mouse_wheel_delta[1] != 0.0 {
             let event = MouseEvent::Scrolled {
@@ -141,8 +144,8 @@ impl InputHandler {
 
         let (mouse, keyboard) = event_queues;
 
-        mouse.push_batch(self.local_mouse_eq.drain(..));
-        keyboard.push_batch(self.local_keyboard_eq.drain(..))
+        mouse.drain_vec_write(&mut self.local_mouse_eq);
+        keyboard.drain_vec_write(&mut self.local_keyboard_eq);
     }
 
     pub fn is_key_pressed(&self, key: &KeyboardKey, modifiers: &KeyboardModifiers) -> bool {

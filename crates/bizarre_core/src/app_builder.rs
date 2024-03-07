@@ -1,10 +1,6 @@
 use std::{default, marker::PhantomData, sync::Once};
 
 use anyhow::Result;
-use bizarre_events::{
-    event::{Event, EventQueue, EventQueueUpdateSystem},
-    observer::EventBus,
-};
 use bizarre_logger::{core_info, global_loggers::logging_thread_start, logger_impl::Logger};
 use specs::{World, WorldExt};
 
@@ -66,20 +62,6 @@ impl AppBuilder {
         self
     }
 
-    pub fn with_event<E>(mut self) -> Self
-    where
-        E: Event,
-    {
-        self.add_event::<E>();
-        self
-    }
-
-    pub fn add_event<E: Event>(&mut self) {
-        self.world.insert(EventQueue::<E>::default());
-        self.schedule_builder
-            .with_event_cleaner(EventQueueUpdateSystem::<E>::default());
-    }
-
     pub fn add_system<S>(
         &mut self,
         schedule_type: ScheduleType,
@@ -120,13 +102,12 @@ impl AppBuilder {
 
         core_info!("Started the logger thread!");
 
-        self.add_event::<AppCloseRequestedEvent>();
-
         Ok(App {
             world: self.world,
             name,
             schedule: self.schedule_builder.build(),
             running: false,
+            app_close_reader: None,
         })
     }
 }
