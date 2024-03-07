@@ -1,9 +1,10 @@
 use nalgebra_glm::{
     quat_angle, quat_angle_axis, quat_axis, quat_rotate_vec3, rotate, vec3, Mat4, Quat, Vec3,
 };
-use specs::{Component, VecStorage};
+use specs::{storage, Component, VecStorage};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
+#[storage(VecStorage)]
 pub struct TransformComponent {
     pub position: Vec3,
     pub rotation: Quat,
@@ -74,10 +75,6 @@ impl Default for TransformComponent {
             scale: vec3(1.0, 1.0, 1.0),
         }
     }
-}
-
-impl Component for TransformComponent {
-    type Storage = VecStorage<Self>;
 }
 
 // impl From<Mat4> for Transform {

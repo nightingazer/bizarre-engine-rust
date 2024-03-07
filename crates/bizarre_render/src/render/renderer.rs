@@ -1,11 +1,15 @@
-use std::mem::size_of;
+use std::{
+    mem::size_of,
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{anyhow, bail, Result};
 use ash::{
     extensions::khr,
     vk::{self, DeviceSize},
 };
-use bizarre_logger::core_debug;
+use bizarre_logger::{core_debug, core_error};
 use nalgebra_glm::{Mat4, Vec3};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
@@ -853,7 +857,7 @@ impl Renderer {
         )
     }
 
-    pub fn resize(&mut self, size: [u32; 2]) -> Result<()> {
+    pub fn resize(&mut self, size: [u32; 2]) {
         self.surface_extent = vk::Extent2D {
             width: size[0],
             height: size[1],
@@ -861,9 +865,11 @@ impl Renderer {
 
         self.viewport = create_viewport(self.surface_extent);
 
-        self.recreate_swapchain()?;
+        core_debug!("Resizing renderer: {:?}", size);
 
-        Ok(())
+        if let Err(err) = self.recreate_swapchain() {
+            core_error!("Failed to resize, failed to recreate swapchain: {}", err)
+        };
     }
 
     fn recreate_swapchain(&mut self) -> Result<()> {

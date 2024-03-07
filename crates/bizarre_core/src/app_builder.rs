@@ -1,14 +1,18 @@
-use std::marker::PhantomData;
+use std::{default, marker::PhantomData, sync::Once};
 
 use anyhow::Result;
-use bizarre_events::observer::EventBus;
+use bizarre_events::{
+    event::{Event, EventQueue, EventQueueUpdateSystem},
+    observer::EventBus,
+};
 use bizarre_logger::{core_info, global_loggers::logging_thread_start, logger_impl::Logger};
 use specs::{World, WorldExt};
 
 use crate::{
+    app_events::AppCloseRequestedEvent,
     layer::Layer,
     schedule::{ScheduleBuilder, ScheduleType},
-    App, AppObserver,
+    App,
 };
 
 #[derive(Default, Clone)]
@@ -22,52 +26,76 @@ impl BuilderValidator for Yes {}
 impl BuilderValidator for No {}
 
 #[derive(Default)]
-pub struct AppBuilder<NameSet = No>
-where
-    NameSet: BuilderValidator,
-{
+pub struct AppBuilder {
     pub name: Option<Box<str>>,
-    pub layers_to_add: Vec<Box<dyn Layer>>,
     pub schedule_builder: ScheduleBuilder,
-    pub loggers_to_add: Vec<Logger>,
-    _phantom_data: PhantomData<NameSet>,
+    pub world: specs::World,
 }
 
-impl<NameSet: BuilderValidator> AppBuilder<NameSet> {
-    pub fn new() -> AppBuilder<No> {
-        AppBuilder::<No>::default()
-    }
+#[cfg(debug_assertions)]
+static APP_BUILDER_ONCE: Once = Once::new();
 
-    pub fn name(mut self, name: &str) -> AppBuilder<Yes> {
-        self.name = Some(name.into());
+impl AppBuilder {
+    pub fn new() -> AppBuilder {
+        #[cfg(debug_assertions)]
+        {
+            if APP_BUILDER_ONCE.is_completed() {
+                panic!("Cannot build application more than once!");
+            }
+            APP_BUILDER_ONCE.call_once(|| {});
+        }
+
+        logging_thread_start(None);
+
         AppBuilder {
-            layers_to_add: self.layers_to_add,
-            loggers_to_add: self.loggers_to_add,
-            schedule_builder: self.schedule_builder,
-            name: self.name,
+            world: specs::World::new(),
             ..Default::default()
         }
     }
 
-    pub fn with_layer<L>(mut self, layer: L) -> Self
+    pub fn name(mut self, name: &str) -> AppBuilder {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn with_layer<L>(mut self, mut layer: L) -> Self
     where
         L: Layer + 'static,
     {
-        self.layers_to_add.push(Box::new(layer));
+        layer.on_attach(&mut self);
         self
     }
 
-    pub fn with_logger(mut self, logger: Logger) -> Self {
-        self.loggers_to_add.push(logger);
-        self
-    }
-
-    pub fn with_loggers<I>(mut self, loggers: I) -> Self
+    pub fn with_event<E>(mut self) -> Self
     where
-        I: IntoIterator<Item = Logger>,
+        E: Event,
     {
-        self.loggers_to_add.extend(loggers.into_iter());
+        self.add_event::<E>();
         self
+    }
+
+    pub fn add_event<E: Event>(&mut self) {
+        self.world.insert(EventQueue::<E>::default());
+        self.schedule_builder
+            .with_event_cleaner(EventQueueUpdateSystem::<E>::default());
+    }
+
+    pub fn add_system<S>(
+        &mut self,
+        schedule_type: ScheduleType,
+        system: S,
+        name: &str,
+        dependencies: &[&str],
+    ) where
+        S: for<'a> specs::System<'a> + 'static + Send,
+    {
+        match schedule_type {
+            ScheduleType::Frame => {
+                self.schedule_builder
+                    .with_frame_system(system, name, dependencies)
+            }
+            _ => unimplemented!("It is possible to assign a system only to the frame schedule"),
+        };
     }
 
     pub fn with_system<S>(
@@ -80,45 +108,25 @@ impl<NameSet: BuilderValidator> AppBuilder<NameSet> {
     where
         S: for<'a> specs::System<'a> + 'static + Send,
     {
-        match schedule_type {
-            ScheduleType::Frame => {
-                self.schedule_builder
-                    .with_frame_system(system, name, dependencies)
-            }
-            _ => unimplemented!("It is possible to assign a system only to the frame schedule"),
-        };
-
+        self.add_system(schedule_type, system, name, dependencies);
         self
     }
-}
 
-impl AppBuilder<Yes> {
     pub fn build(mut self) -> Result<App> {
-        logging_thread_start(match self.loggers_to_add.len() {
-            0 => None,
-            _ => Some(self.loggers_to_add),
-        });
+        let name = self
+            .name
+            .take()
+            .expect("Cannot create an app without a name");
 
         core_info!("Started the logger thread!");
 
-        let event_bus = EventBus::new();
-        let mut world = World::new();
-        let layers = self
-            .layers_to_add
-            .into_iter()
-            .map(|mut l| {
-                l.on_attach(&event_bus, &mut world, &mut self.schedule_builder)?;
-                Ok(l)
-            })
-            .collect::<Result<Vec<_>>>()?;
+        self.add_event::<AppCloseRequestedEvent>();
 
         Ok(App {
-            event_bus,
-            world,
-            layers,
-            name: self.name.unwrap(),
-            observer: AppObserver { running: true },
+            world: self.world,
+            name,
             schedule: self.schedule_builder.build(),
+            running: false,
         })
     }
 }

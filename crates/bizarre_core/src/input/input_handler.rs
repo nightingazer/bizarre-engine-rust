@@ -1,12 +1,9 @@
-use bizarre_events::observer::EventBus;
+use bizarre_events::{event::EventQueue, observer::EventBus};
 use nalgebra_glm::Vec2;
 
-use crate::{
-    input::input_event::KeyboardModifiers,
-    input::{input_event::InputEvent, key_codes::KeyboardKey},
-};
+use crate::input::{key_codes::KeyboardKey, KeyboardEvent};
 
-use super::mouse_button::MouseButton;
+use super::{mouse_button::MouseButton, KeyboardModifiers, MouseEvent};
 
 pub struct InputHandler {
     mouse_previous_position: Vec2,
@@ -17,6 +14,8 @@ pub struct InputHandler {
     previous_keyboard_state: [bool; u16::MAX as usize],
     mouse_button_state: [bool; u8::MAX as usize],
     previous_mouse_button_state: [bool; u8::MAX as usize],
+    pub local_keyboard_eq: Vec<KeyboardEvent>,
+    pub local_mouse_eq: Vec<MouseEvent>,
 }
 
 impl Default for InputHandler {
@@ -36,15 +35,12 @@ impl InputHandler {
             previous_keyboard_state: [false; u16::MAX as usize],
             mouse_button_state: [false; u8::MAX as usize],
             previous_mouse_button_state: [false; u8::MAX as usize],
+            local_keyboard_eq: Vec::default(),
+            local_mouse_eq: Vec::default(),
         }
     }
 
-    pub fn process_keyboard(
-        &mut self,
-        keycode: u16,
-        pressed: bool,
-        event_bus: &EventBus,
-    ) -> anyhow::Result<()> {
+    pub fn process_keyboard(&mut self, keycode: u16, pressed: bool) {
         let key = KeyboardKey::from(keycode);
         macro_rules! process_modifiers {
             {$($key:ident => $modifier:ident),+,} => {
@@ -77,86 +73,76 @@ impl InputHandler {
         self.keyboard_state[keycode as usize] = pressed;
 
         let event = if pressed {
-            InputEvent::KeyboardPressed {
+            KeyboardEvent::Pressed {
                 key,
                 modifiers: self.keyboard_modifiers,
             }
         } else {
-            InputEvent::KeyboardReleased {
+            KeyboardEvent::Released {
                 key,
                 modifiers: self.keyboard_modifiers,
             }
         };
 
-        event_bus.push_event(event);
-
-        Ok(())
+        self.local_keyboard_eq.push(event);
     }
 
-    pub fn process_mouse_move(
-        &mut self,
-        position: Vec2,
-        event_bus: &EventBus,
-    ) -> anyhow::Result<()> {
+    pub fn process_mouse_move(&mut self, position: Vec2) {
         self.mouse_position = position;
 
-        let event = InputEvent::MouseMoved {
+        let event = MouseEvent::Moved {
             x: self.mouse_position[0],
             y: self.mouse_position[1],
         };
 
-        event_bus.push_event(event);
-
-        Ok(())
+        self.local_mouse_eq.push(event);
     }
 
-    pub fn process_mouse_button(
-        &mut self,
-        button: MouseButton,
-        pressed: bool,
-        event_bus: &EventBus,
-    ) -> anyhow::Result<()> {
+    pub fn process_mouse_button(&mut self, button: MouseButton, pressed: bool) {
         let index: u8 = button.into();
         self.mouse_button_state[index as usize] = pressed;
 
         let event = if pressed {
-            InputEvent::MousePressed {
+            MouseEvent::Pressed {
                 button,
                 modifiers: self.keyboard_modifiers,
             }
         } else {
-            InputEvent::MouseReleased {
+            MouseEvent::Released {
                 button,
                 modifiers: self.keyboard_modifiers,
             }
         };
 
-        event_bus.push_event(event);
-
-        Ok(())
+        self.local_mouse_eq.push(event);
     }
 
-    pub fn process_mouse_scroll(&mut self, delta: [f32; 2]) -> anyhow::Result<()> {
+    pub fn process_mouse_scroll(&mut self, delta: [f32; 2]) {
         self.mouse_wheel_delta[0] += delta[0];
         self.mouse_wheel_delta[1] += delta[1];
-
-        Ok(())
     }
 
-    pub fn update(&mut self, event_bus: &EventBus) -> anyhow::Result<()> {
+    pub fn update(
+        &mut self,
+        event_queues: &mut (&mut EventQueue<MouseEvent>, &mut EventQueue<KeyboardEvent>),
+    ) {
         if self.mouse_wheel_delta[0] != 0.0 || self.mouse_wheel_delta[1] != 0.0 {
-            let event = InputEvent::MouseScrolled {
+            let event = MouseEvent::Scrolled {
                 x: self.mouse_wheel_delta[0],
                 y: self.mouse_wheel_delta[1],
             };
 
-            event_bus.push_event(event);
+            self.local_mouse_eq.push(event);
         }
         self.mouse_wheel_delta = [0.0, 0.0].into();
         self.mouse_previous_position = self.mouse_position;
         self.previous_keyboard_state = self.keyboard_state;
         self.previous_mouse_button_state = self.mouse_button_state;
-        Ok(())
+
+        let (mouse, keyboard) = event_queues;
+
+        mouse.push_batch(self.local_mouse_eq.drain(..));
+        keyboard.push_batch(self.local_keyboard_eq.drain(..))
     }
 
     pub fn is_key_pressed(&self, key: &KeyboardKey, modifiers: &KeyboardModifiers) -> bool {

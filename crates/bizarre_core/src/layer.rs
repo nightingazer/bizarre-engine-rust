@@ -1,29 +1,17 @@
 use anyhow::Result;
 use bizarre_events::observer::EventBus;
 
-use crate::schedule::ScheduleBuilder;
+use crate::{app_builder::AppBuilder, schedule::ScheduleBuilder};
 
 pub trait Layer {
-    fn on_attach(
-        &mut self,
-        event_bus: &EventBus,
-        world: &mut specs::World,
-        schedule_builder: &mut ScheduleBuilder,
-    ) -> Result<()> {
-        let _ = world;
-        let _ = event_bus;
-        let _ = schedule_builder;
+    fn on_attach(&mut self, app_builder: &mut AppBuilder) -> Result<()> {
+        let _ = app_builder;
         Ok(())
     }
 
-    fn on_update(&mut self, event_bus: &EventBus, world: &mut specs::World) -> Result<()> {
-        let _ = event_bus;
+    #[deprecated]
+    fn on_update(&mut self, world: &mut specs::World) -> Result<()> {
         let _ = world;
         Ok(())
-    }
-
-    fn on_detach(&mut self, event_bus: &EventBus, world: &mut specs::World) {
-        let _ = world;
-        let _ = event_bus;
     }
 }

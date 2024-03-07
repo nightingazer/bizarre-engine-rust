@@ -1,51 +1,138 @@
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use anyhow::{bail, Result};
-
+use anyhow::Result;
 use bizarre_core::{
+    app_builder::AppBuilder,
     app_events::AppCloseRequestedEvent,
     core_events::WindowResized,
-    input::{InputHandler, MouseButton},
+    input::{input_handler, InputHandler, MouseButton},
     layer::Layer,
-    schedule::ScheduleBuilder,
+    schedule::ScheduleType,
 };
-use bizarre_events::observer::{EventBus, Observer, SyncObserver};
+use bizarre_events::event::EventQueue;
+use bizarre_logger::core_debug;
 use bizarre_render::{
-    render_components::{transform::TransformComponent, MeshComponent},
+    render_components::WindowComponent,
     render_math::DirectionalLight,
     render_submitter::RenderSubmitter,
-    render_systems::{DrawMeshSystem, MeshManagementSystem},
+    render_systems::{MeshManagementSystem, RendererResource, RendererUpdateSystem},
     Renderer,
 };
-use specs::{Join, ReadStorage, System, WorldExt, Write};
-use winit::platform::{
-    pump_events::{EventLoopExtPumpEvents, PumpStatus},
-    scancode::PhysicalKeyExtScancode,
+use specs::{Builder, Join, Read, ReadStorage, System, WorldExt, Write};
+use winit::{
+    dpi::LogicalSize,
+    platform::{pump_events::EventLoopExtPumpEvents, scancode::PhysicalKeyExtScancode},
 };
 
-pub struct VisualLayer {
-    event_loop: winit::event_loop::EventLoop<()>,
-    window: winit::window::Window,
-    renderer: Option<Renderer>,
+#[derive(Default)]
+pub struct VisualLayer;
+
+impl Layer for VisualLayer {
+    fn on_attach(&mut self, app_builder: &mut AppBuilder) -> Result<()> {
+        let event_loop = winit::event_loop::EventLoop::new()?;
+
+        let window = winit::window::WindowBuilder::new()
+            .with_active(true)
+            .with_title("Bizarre Engine")
+            .with_inner_size(LogicalSize::new(800, 600))
+            .build(&event_loop)?;
+
+        let renderer = Renderer::new(&window)?;
+
+        let event_loop = WinitEventLoopResource(Arc::new(Mutex::new(event_loop)));
+
+        app_builder.world.insert(event_loop);
+        app_builder.world.insert(RendererResource::new(renderer));
+
+        app_builder.world.register::<WindowComponent>();
+        app_builder
+            .world
+            .create_entity()
+            .with(WindowComponent { handle: window })
+            .build();
+
+        app_builder.add_event::<WindowResized>();
+        app_builder.add_system(
+            ScheduleType::Frame,
+            WinitEventSystem,
+            WinitEventSystem::DEFAULT_NAME,
+            &[],
+        );
+        app_builder.add_system(
+            ScheduleType::Frame,
+            MeshManagementSystem::default(),
+            MeshManagementSystem::DEFAULT_NAME,
+            &[],
+        );
+        app_builder.add_system(
+            ScheduleType::Frame,
+            LightSystem,
+            LightSystem::DEFAULT_NAME,
+            &[],
+        );
+        app_builder.add_system(
+            ScheduleType::Frame,
+            RendererResizeSystem,
+            "renderer_resize",
+            &[],
+        );
+        app_builder.add_system(
+            ScheduleType::Frame,
+            RendererUpdateSystem,
+            RendererUpdateSystem::DEFAULT_NAME,
+            &[
+                MeshManagementSystem::DEFAULT_NAME,
+                LightSystem::DEFAULT_NAME,
+            ],
+        );
+
+        Ok(())
+    }
 }
 
-impl VisualLayer {
-    pub fn new() -> Result<Self> {
-        let event_loop = winit::event_loop::EventLoop::new()?;
-        let window: winit::window::Window = winit::window::WindowBuilder::new()
-            .with_title("Bizarre Engine")
-            .build(&event_loop)
-            .unwrap();
+pub struct RendererResizeSystem;
 
-        Ok(Self {
-            event_loop,
-            window,
-            renderer: None,
-        })
+impl<'a> System<'a> for RendererResizeSystem {
+    type SystemData = (
+        Read<'a, EventQueue<WindowResized>>,
+        Write<'a, RendererResource>,
+    );
+
+    fn run(&mut self, data: Self::SystemData) {
+        let (events, mut renderer) = data;
+        let events = events.get_events();
+
+        if let Some(resize) = events.last() {
+            core_debug!("RenderResizeSystem: resize {:?}", resize);
+            renderer
+                .lock()
+                .unwrap()
+                .resize([resize.width as u32, resize.height as u32])
+        }
+    }
+}
+
+pub struct WinitEventLoopResource(pub Arc<Mutex<winit::event_loop::EventLoop<()>>>);
+
+unsafe impl Send for WinitEventLoopResource {}
+unsafe impl Sync for WinitEventLoopResource {}
+
+impl Default for WinitEventLoopResource {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(
+            winit::event_loop::EventLoop::new().unwrap(),
+        )))
     }
 }
 
 struct LightSystem;
+
+impl LightSystem {
+    pub const DEFAULT_NAME: &'static str = "light_system";
+}
 
 impl<'a> System<'a> for LightSystem {
     type SystemData = (
@@ -62,41 +149,34 @@ impl<'a> System<'a> for LightSystem {
     }
 }
 
-impl Observer for VisualLayer {
-    fn initialize(event_bus: &EventBus, system: SyncObserver<Self>) {
-        event_bus.subscribe(system, Self::handle_window_resize);
-    }
+#[derive(Default)]
+pub struct WinitEventSystem;
+
+impl WinitEventSystem {
+    pub const DEFAULT_NAME: &'static str = "winit_event_system";
 }
 
-impl VisualLayer {
-    fn handle_window_resize(&mut self, event: &WindowResized) {
-        self.renderer
-            .as_mut()
-            .unwrap()
-            .resize([event.width as u32, event.height as u32])
-            .expect("Failed to resize renderer");
-    }
-
-    fn handle_event<E>(
+impl WinitEventSystem {
+    fn handle_event<E: 'static>(
         event: winit::event::Event<E>,
-        _elwt: &winit::event_loop::EventLoopWindowTarget<E>,
-        input_handler: &mut InputHandler,
-        event_bus: &EventBus,
-        _window: &winit::window::Window,
-        loop_result: &mut anyhow::Result<()>,
-    ) where
-        E: 'static,
-    {
+        data: &mut (
+            &mut InputHandler,
+            &mut EventQueue<AppCloseRequestedEvent>,
+            &mut EventQueue<WindowResized>,
+        ),
+    ) {
         use winit::event as w_event;
+
+        let (input_handler, app_close_eq, window_resize_eq) = data;
 
         if let w_event::Event::WindowEvent { event, .. } = event {
             match event {
                 w_event::WindowEvent::CloseRequested => {
-                    event_bus.push_event(AppCloseRequestedEvent);
+                    app_close_eq.push_event(AppCloseRequestedEvent)
                 }
                 w_event::WindowEvent::Resized(size) => {
                     let size = [size.width, size.height];
-                    event_bus.push_event(WindowResized {
+                    window_resize_eq.push_event(WindowResized {
                         width: size[0] as f32,
                         height: size[1] as f32,
                     });
@@ -115,13 +195,10 @@ impl VisualLayer {
                         w_event::ElementState::Pressed => true,
                         w_event::ElementState::Released => false,
                     };
-                    *loop_result = input_handler.process_keyboard(keycode, pressed, event_bus);
+                    input_handler.process_keyboard(keycode, pressed);
                 }
                 w_event::WindowEvent::CursorMoved { position, .. } => {
-                    *loop_result = input_handler.process_mouse_move(
-                        [position.x as f32, position.y as f32].into(),
-                        event_bus,
-                    );
+                    input_handler.process_mouse_move([position.x as f32, position.y as f32].into());
                 }
                 w_event::WindowEvent::MouseInput { state, button, .. } => {
                     let pressed = match state {
@@ -138,7 +215,7 @@ impl VisualLayer {
                         }
                         _ => MouseButton::Other(u8::MAX),
                     };
-                    *loop_result = input_handler.process_mouse_button(button, pressed, event_bus);
+                    input_handler.process_mouse_button(button, pressed);
                 }
                 w_event::WindowEvent::MouseWheel { delta, .. } => {
                     let delta = match delta {
@@ -147,7 +224,7 @@ impl VisualLayer {
                             [position.x as f32, position.y as f32]
                         }
                     };
-                    *loop_result = input_handler.process_mouse_scroll(delta);
+                    input_handler.process_mouse_scroll(delta);
                 }
                 _ => (),
             }
@@ -155,96 +232,118 @@ impl VisualLayer {
     }
 }
 
-impl Layer for VisualLayer {
-    fn on_attach(
-        &mut self,
-        event_bus: &EventBus,
-        world: &mut specs::World,
-        schedule_builder: &mut ScheduleBuilder,
-    ) -> Result<()> {
-        let renderer = Renderer::new(&self.window);
-        let renderer = match renderer {
-            Ok(r) => r,
-            Err(e) => {
-                bail!("Failed to create renderer: {:?}", e);
-            }
-        };
-        self.renderer = Some(renderer);
+impl<'a> specs::System<'a> for WinitEventSystem {
+    type SystemData = (
+        Write<'a, WinitEventLoopResource>,
+        Write<'a, InputHandler>,
+        Write<'a, EventQueue<AppCloseRequestedEvent>>,
+        Write<'a, EventQueue<WindowResized>>,
+    );
 
-        event_bus.add_observer(self);
+    fn run(&mut self, data: Self::SystemData) {
+        let (mut event_loop, mut input_handler, mut app_close_eq, mut window_resize_eq) = data;
 
-        let mut submitter = RenderSubmitter::new();
-        submitter.set_clear_color([0.0, 0.0, 0.0, 1.0]);
-        submitter.submit_ambient_light(bizarre_render::render_math::AmbientLight {
-            color: [0.6, 0.9, 1.0],
-            intensity: 0.3,
-        });
+        let mut event_loop = event_loop.0.lock().unwrap();
 
-        world.insert(submitter);
-
-        world.register::<MeshComponent>();
-        world.register::<TransformComponent>();
-        world.register::<DirectionalLight>();
-
-        event_bus.push_event(WindowResized {
-            width: self.window.inner_size().width as f32,
-            height: self.window.inner_size().height as f32,
-        });
-
-        let mesh_management_system = MeshManagementSystem {
-            reader_id: world.write_storage::<MeshComponent>().register_reader(),
-        };
-
-        schedule_builder
-            .with_frame_system(mesh_management_system, "mesh_management", &[])
-            .with_frame_system(DrawMeshSystem, "draw_meshes", &["mesh_management"]);
-
-        Ok(())
-    }
-
-    fn on_update(&mut self, event_bus: &EventBus, world: &mut specs::World) -> Result<()> {
-        let mut input_handler = world.write_resource::<InputHandler>();
-
-        let timeout = Some(Duration::ZERO);
-        let mut result = Ok(());
-        let status = self.event_loop.pump_events(timeout, |event, ewlt| {
+        event_loop.pump_events(Some(Duration::ZERO), |event, ewlt| {
             Self::handle_event(
                 event,
-                ewlt,
-                &mut input_handler,
-                event_bus,
-                &self.window,
-                &mut result,
-            )
+                &mut (&mut input_handler, &mut app_close_eq, &mut window_resize_eq),
+            );
         });
-
-        if let Err(e) = result {
-            bail!("Failed to handle event: {e}");
-        }
-
-        if let PumpStatus::Exit(code) = status {
-            bail!("Winit event loop exited with code {code}");
-        }
-
-        let mut submitter = world.write_resource::<RenderSubmitter>();
-        let render_package = submitter.finalize_submission();
-        let result = self
-            .renderer
-            .as_mut()
-            .expect("There is no renderer. The Visual Layer was not initialized properly")
-            .render(&render_package);
-
-        if let Err(e) = result {
-            bail!("Failed to render frame: {e}");
-        } else {
-            Ok(())
-        }
-    }
-
-    fn on_detach(&mut self, _event_bus: &EventBus, _world: &mut specs::World) {
-        self.renderer
-            .as_mut()
-            .expect("There is no renderer to destroy")
-            .destroy();
     }
 }
+
+// impl VisualLayer {
+//     fn on_attach(
+//         &mut self,
+//         event_bus: &EventBus,
+//         world: &mut specs::World,
+//         schedule_builder: &mut ScheduleBuilder,
+//     ) -> Result<()> {
+//         let renderer = Renderer::new(&self.window);
+//         let renderer = match renderer {
+//             Ok(r) => r,
+//             Err(e) => {
+//                 bail!("Failed to create renderer: {:?}", e);
+//             }
+//         };
+//         self.renderer = Some(renderer);
+
+//         event_bus.add_observer(self);
+
+//         let mut submitter = RenderSubmitter::new();
+//         submitter.set_clear_color([0.0, 0.0, 0.0, 1.0]);
+//         submitter.submit_ambient_light(bizarre_render::render_math::AmbientLight {
+//             color: [0.6, 0.9, 1.0],
+//             intensity: 0.3,
+//         });
+
+//         world.insert(submitter);
+
+//         world.register::<MeshComponent>();
+//         world.register::<TransformComponent>();
+//         world.register::<DirectionalLight>();
+
+//         event_bus.push_event(WindowResized {
+//             width: self.window.inner_size().width as f32,
+//             height: self.window.inner_size().height as f32,
+//         });
+
+//         let mesh_management_system = MeshManagementSystem {
+//             reader_id: world.write_storage::<MeshComponent>().register_reader(),
+//         };
+
+//         schedule_builder
+//             .with_frame_system(mesh_management_system, "mesh_management", &[])
+//             .with_frame_system(DrawMeshSystem, "draw_meshes", &["mesh_management"]);
+
+//         Ok(())
+//     }
+
+//     fn on_update(&mut self, event_bus: &EventBus, world: &mut specs::World) -> Result<()> {
+//         let mut input_handler = world.write_resource::<InputHandler>();
+
+//         let timeout = Some(Duration::ZERO);
+//         let mut result = Ok(());
+//         let status = self.event_loop.pump_events(timeout, |event, ewlt| {
+//             Self::handle_event(
+//                 event,
+//                 ewlt,
+//                 &mut input_handler,
+//                 event_bus,
+//                 &self.window,
+//                 &mut result,
+//             )
+//         });
+
+//         if let Err(e) = result {
+//             bail!("Failed to handle event: {e}");
+//         }
+
+//         if let PumpStatus::Exit(code) = status {
+//             bail!("Winit event loop exited with code {code}");
+//         }
+
+//         let mut submitter = world.write_resource::<RenderSubmitter>();
+//         let render_package = submitter.finalize_submission();
+//         let result = self
+//             .renderer
+//             .as_mut()
+//             .expect("There is no renderer. The Visual Layer was not initialized properly")
+//             .render(&render_package);
+
+//         if let Err(e) = result {
+//             bail!("Failed to render frame: {e}");
+//         } else {
+//             Ok(())
+//         }
+//     }
+
+//     fn on_detach(&mut self, _event_bus: &EventBus, _world: &mut specs::World) {
+//         self.renderer
+//             .as_mut()
+//             .expect("There is no renderer to destroy")
+//             .destroy();
+//     }
+// }

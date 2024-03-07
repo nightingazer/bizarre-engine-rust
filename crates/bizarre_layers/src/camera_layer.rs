@@ -3,10 +3,13 @@ use bizarre_core::{
     core_events::WindowResized,
     input::{InputHandler, KeyboardKey, KeyboardModifiers, MouseButton},
     layer::Layer,
-    schedule::ScheduleBuilder,
+    schedule::{ScheduleBuilder, ScheduleType},
 };
 
-use bizarre_events::observer::{EventBus, Observer};
+use bizarre_events::{
+    event::EventQueue,
+    observer::{EventBus, Observer},
+};
 use bizarre_logger::core_warn;
 use bizarre_render::{
     render_components::{free_camera::FreeCameraComponent, ActiveCamera, Camera, CameraProjection},
@@ -15,22 +18,20 @@ use bizarre_render::{
 use nalgebra_glm::{vec3, Vec2};
 use specs::{Builder, Join, Read, ReadStorage, RunNow, System, WorldExt, Write, WriteStorage};
 
-struct CameraSystem {
-    updated_aspect_ratio: Option<f32>,
-    view_proj_force_update: bool,
-}
+struct CameraSystem {}
 
 impl<'a> System<'a> for CameraSystem {
     type SystemData = (
         Write<'a, RenderSubmitter>,
         Read<'a, InputHandler>,
         Read<'a, DeltaTime>,
+        Read<'a, EventQueue<WindowResized>>,
         WriteStorage<'a, FreeCameraComponent>,
         ReadStorage<'a, ActiveCamera>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
-        let (mut submitter, input, delta_time, mut cameras, active_camera) = data;
+        let (mut submitter, input, delta_time, window_resize_eq, mut cameras, active_camera) = data;
 
         let delta_time = delta_time.0.as_secs_f32();
         const BASE_CAMERA_SPEED: f32 = 10.0;
@@ -49,14 +50,15 @@ impl<'a> System<'a> for CameraSystem {
 
         let (camera, _) = active_camera.unwrap();
 
-        let projection_updated = if self.updated_aspect_ratio.is_some() {
-            camera.update_aspect_ratio(self.updated_aspect_ratio.unwrap());
-            true
-        } else {
-            self.view_proj_force_update
+        let projection_updated = match window_resize_eq.get_events().iter().last() {
+            Some(ev) => {
+                camera.update_aspect_ratio(ev.width / ev.height);
+                true
+            }
+            None => false,
         };
 
-        let mut view_updated = self.view_proj_force_update;
+        let mut view_updated = false;
 
         if input.is_key_pressed(&KeyboardKey::W, &KeyboardModifiers::empty()) {
             let direction = {
@@ -141,28 +143,16 @@ impl<'a> System<'a> for CameraSystem {
 }
 
 #[derive(Default)]
-pub struct CameraLayer {
-    updated_aspect_ratio: Option<f32>,
-    //TODO: There must be a better way
-    view_proj_force_update: bool,
-}
-
-impl CameraLayer {
-    fn handle_resize(&mut self, event: &WindowResized) {
-        let aspect_ratio = event.width / event.height;
-        self.updated_aspect_ratio = Some(aspect_ratio);
-    }
-}
+pub struct CameraLayer;
 
 impl Layer for CameraLayer {
     fn on_attach(
         &mut self,
-        event_bus: &EventBus,
-        world: &mut specs::World,
-        _schedule_builder: &mut ScheduleBuilder,
+        app_builder: &mut bizarre_core::app_builder::AppBuilder,
     ) -> anyhow::Result<()> {
-        world.register::<FreeCameraComponent>();
-        world.register::<ActiveCamera>();
+        app_builder.world.register::<FreeCameraComponent>();
+        app_builder.world.register::<ActiveCamera>();
+
         let mut camera = FreeCameraComponent::new(CameraProjection::Perspective {
             fovy: 60.0f32.to_radians(),
             aspect: 1.0,
@@ -174,33 +164,15 @@ impl Layer for CameraLayer {
 
         camera.yaw = 180.0;
 
-        self.view_proj_force_update = true;
-
-        world
+        app_builder
+            .world
             .create_entity()
             .with(camera)
             .with(ActiveCamera)
             .build();
 
-        event_bus.add_observer(self);
+        app_builder.add_system(ScheduleType::Frame, CameraSystem {}, "camera_system", &[]);
 
         Ok(())
-    }
-
-    fn on_update(&mut self, _event_bus: &EventBus, world: &mut specs::World) -> anyhow::Result<()> {
-        let mut camera_sys = CameraSystem {
-            updated_aspect_ratio: self.updated_aspect_ratio,
-            view_proj_force_update: self.view_proj_force_update,
-        };
-        camera_sys.run_now(world);
-        self.updated_aspect_ratio = None;
-        self.view_proj_force_update = false;
-        Ok(())
-    }
-}
-
-impl Observer for CameraLayer {
-    fn initialize(event_bus: &EventBus, system: bizarre_events::observer::SyncObserver<Self>) {
-        event_bus.subscribe(system, Self::handle_resize);
     }
 }

@@ -7,6 +7,12 @@ use std::{
 #[derive(Clone, Debug)]
 pub struct Handle<T>(pub usize, PhantomData<T>);
 
+impl<T> Default for Handle<T> {
+    fn default() -> Self {
+        Self(Default::default(), Default::default())
+    }
+}
+
 impl<T: Clone> Copy for Handle<T> {}
 
 impl<T> PartialEq for Handle<T> {

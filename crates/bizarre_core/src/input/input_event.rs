@@ -25,32 +25,38 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum InputEvent {
-    KeyboardPressed {
-        key: KeyboardKey,
-        modifiers: KeyboardModifiers,
-    },
-    KeyboardReleased {
-        key: KeyboardKey,
-        modifiers: KeyboardModifiers,
-    },
-    MousePressed {
+#[derive(Debug, Clone)]
+pub enum MouseEvent {
+    Pressed {
         button: MouseButton,
         modifiers: KeyboardModifiers,
     },
-    MouseReleased {
+    Released {
         button: MouseButton,
         modifiers: KeyboardModifiers,
     },
-    MouseMoved {
+    Moved {
         x: f32,
         y: f32,
     },
-    MouseScrolled {
+    Scrolled {
         x: f32,
         y: f32,
     },
 }
 
-impl Event for InputEvent {}
+impl Event for MouseEvent {}
+
+#[derive(Debug, Clone)]
+pub enum KeyboardEvent {
+    Pressed {
+        key: KeyboardKey,
+        modifiers: KeyboardModifiers,
+    },
+    Released {
+        key: KeyboardKey,
+        modifiers: KeyboardModifiers,
+    },
+}
+
+impl Event for KeyboardEvent {}

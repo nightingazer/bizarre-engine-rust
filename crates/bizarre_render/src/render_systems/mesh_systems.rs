@@ -1,5 +1,6 @@
 use specs::{
-    storage::ComponentEvent, Entities, Join, ReadStorage, ReaderId, System, SystemData, Write,
+    shrev::EventChannel, storage::ComponentEvent, Entities, Join, Read, ReadStorage, ReaderId,
+    System, SystemData, Write, WriteStorage,
 };
 
 use crate::{
@@ -32,8 +33,13 @@ impl<'a> System<'a> for DrawMeshSystem {
     }
 }
 
+#[derive(Default)]
 pub struct MeshManagementSystem {
-    pub reader_id: ReaderId<ComponentEvent>,
+    pub reader_id: Option<ReaderId<ComponentEvent>>,
+}
+
+impl MeshManagementSystem {
+    pub const DEFAULT_NAME: &'static str = "mesh_management_system";
 }
 
 impl<'a> System<'a> for MeshManagementSystem {
@@ -46,7 +52,7 @@ impl<'a> System<'a> for MeshManagementSystem {
     fn run(&mut self, data: Self::SystemData) {
         let (mut submitter, meshes, entities) = data;
 
-        let events = meshes.channel().read(&mut self.reader_id);
+        let events = meshes.channel().read(&mut self.reader_id.as_mut().unwrap());
 
         for event in events {
             match event {
@@ -67,5 +73,6 @@ impl<'a> System<'a> for MeshManagementSystem {
 
     fn setup(&mut self, world: &mut specs::prelude::World) {
         Self::SystemData::setup(world);
+        self.reader_id = Some(WriteStorage::<MeshComponent>::fetch(world).register_reader());
     }
 }

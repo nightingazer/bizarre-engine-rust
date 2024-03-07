@@ -4,7 +4,7 @@ use specs::{Component, FlaggedStorage, VecStorage};
 
 use crate::mesh_loader::MeshHandle;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MeshComponent(pub MeshHandle);
 
 impl Component for MeshComponent {

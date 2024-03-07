@@ -1,6 +1,7 @@
 use anyhow::Result;
 use bizarre_engine::{
     core::{
+        app_builder::{self, AppBuilder},
         layer::Layer,
         specs::{Builder, WorldExt},
     },
@@ -12,15 +13,15 @@ use bizarre_engine::{
 };
 use nalgebra_glm::vec3;
 
+#[derive(Default)]
 pub struct SandboxLayer;
 
 impl Layer for SandboxLayer {
-    fn on_attach(
-        &mut self,
-        _event_bus: &bizarre_engine::events::observer::EventBus,
-        world: &mut bizarre_engine::core::specs::World,
-        _schedule_builder: &mut bizarre_engine::core::schedule::ScheduleBuilder,
-    ) -> Result<()> {
+    fn on_attach(&mut self, app_builder: &mut AppBuilder) -> Result<()> {
+        app_builder.world.register::<TransformComponent>();
+        app_builder.world.register::<MeshComponent>();
+        app_builder.world.register::<DirectionalLight>();
+
         let monkey_mesh = get_mesh_loader_mut()
             .load_obj("assets/models/monkey.obj".into(), Some(&["monkey".into()]))?[0];
 
@@ -32,7 +33,8 @@ impl Layer for SandboxLayer {
 
         for x in (-grid_half_size..=grid_half_size).step_by(step) {
             for z in (-grid_half_size..=grid_half_size).step_by(step) {
-                world
+                app_builder
+                    .world
                     .create_entity()
                     .with(TransformComponent {
                         position: [x as f32, 1.0, z as f32].into(),
@@ -41,7 +43,8 @@ impl Layer for SandboxLayer {
                     .with(MeshComponent(cube_mesh))
                     .build();
 
-                world
+                app_builder
+                    .world
                     .create_entity()
                     .with(TransformComponent {
                         position: [x as f32, 3.0, z as f32].into(),
@@ -52,7 +55,8 @@ impl Layer for SandboxLayer {
             }
         }
 
-        world
+        app_builder
+            .world
             .create_entity()
             .with(MeshComponent(cube_mesh))
             .with(TransformComponent {
@@ -62,7 +66,8 @@ impl Layer for SandboxLayer {
             })
             .build();
 
-        world
+        app_builder
+            .world
             .create_entity()
             .with(DirectionalLight {
                 color: [1.0, 0.8, 0.6],
