@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://github.com/nightingazer/bizarre-engine-rust/assets/80068087/1a2685a4-7609-409d-b07c-fb6d39552e32">
+</p>
+
 # Bizarre Engine #
 
 My first attempt to make a game engine in Rust. It's will be definitely a very
@@ -16,14 +20,14 @@ implementation perspective. Rest assured, we are working on it.
 ## Rough road map ##
 
 - [x] Logging
-- [x] Debug Assertions with clean shutdown
-- [x] Application System model *(layers?)*
-- [x] Window creation
+- [x] Window creation (winit)
+- [ ] Debug assertions and clean shutdowns on critical failures
 - [x] Input handling
-- [x] Event system
-- [x] Rendering (Vulkan)
+- [x] Event system (I gave up, so I've used the specs event system)
+- [ ] Rendering with Vulkan (in progress)
+- [ ] Material system
 - [ ] Mutlithreading
-- [x] ECS
+- [x] ECS (I've given up, so it specs)
 - [ ] Asset management
 - [ ] Scene management and serialization
 - [ ] Physics
@@ -34,10 +38,7 @@ implementation perspective. Rest assured, we are working on it.
 Somewhere in between there will be some of those:
 
 - [ ] Custom user interface for in-engine and in-game use
-- [ ] AI?
-~~- [ ] DirectX support?~~  
-~~- [ ] Metal support?~~  
-~~- [ ] OpenGl???~~  
+- [ ] AI? (obviously the primitive game AI, not the ML stuff, lol)
 
 For forseable future I'm not planning on adding support for DX, Metal or OpenGl,
 because Vulkan is pretty much cross-platform and on top of that it's supported
