@@ -14,14 +14,18 @@ use bizarre_core::{
 };
 use bizarre_logger::core_debug;
 use bizarre_render::{
-    render_components::WindowComponent,
+    render_components::{MeshComponent, WindowComponent},
     render_math::DirectionalLight,
     render_submitter::RenderSubmitter,
-    render_systems::{MeshManagementSystem, RendererResource, RendererUpdateSystem},
+    render_systems::{
+        MeshDrawRequestSystem, MeshManagementSystem, RendererResource, RendererUpdateSystem,
+    },
+    scene::RenderScene,
     Renderer,
 };
 use specs::{
-    shrev::EventChannel, Builder, Join, Read, ReadStorage, ReaderId, System, WorldExt, Write,
+    shrev::EventChannel, Builder, Join, Read, ReadStorage, ReaderId, System, SystemData, WorldExt,
+    Write,
 };
 use winit::{
     dpi::LogicalSize,
@@ -42,11 +46,13 @@ impl Layer for VisualLayer {
             .build(&event_loop)?;
 
         let renderer = Renderer::new(&window)?;
+        let render_scene = RenderScene::new(&renderer.device)?;
 
         let event_loop = WinitEventLoopResource(Arc::new(Mutex::new(event_loop)));
 
         app_builder.world.insert(event_loop);
         app_builder.world.insert(RendererResource::new(renderer));
+        app_builder.world.insert(render_scene);
 
         app_builder.world.register::<WindowComponent>();
         app_builder
@@ -61,11 +67,30 @@ impl Layer for VisualLayer {
             WinitEventSystem::DEFAULT_NAME,
             &[],
         );
+
+        app_builder.world.register::<MeshComponent>();
+
+        {
+            let mesh_reader = app_builder
+                .world
+                .write_storage::<MeshComponent>()
+                .register_reader();
+            let mesh_management_system = MeshManagementSystem {
+                reader_id: mesh_reader,
+            };
+            app_builder.add_system(
+                ScheduleType::Frame,
+                mesh_management_system,
+                MeshManagementSystem::DEFAULT_NAME,
+                &[],
+            );
+        }
+
         app_builder.add_system(
             ScheduleType::Frame,
-            MeshManagementSystem::default(),
-            MeshManagementSystem::DEFAULT_NAME,
-            &[],
+            MeshDrawRequestSystem::default(),
+            MeshDrawRequestSystem::DEFAULT_NAME,
+            &[MeshManagementSystem::DEFAULT_NAME],
         );
         app_builder.add_system(
             ScheduleType::Frame,
@@ -79,6 +104,7 @@ impl Layer for VisualLayer {
             "renderer_resize",
             &[],
         );
+        app_builder.add_barrier(ScheduleType::Frame);
         app_builder.add_system(
             ScheduleType::Frame,
             RendererUpdateSystem,
@@ -109,7 +135,6 @@ impl<'a> System<'a> for RendererResizeSystem {
         let events = events.read(self.reader_id.as_mut().unwrap());
 
         if let Some(resize) = events.last() {
-            core_debug!("RenderResizeSystem: resize {:?}", resize);
             renderer
                 .lock()
                 .unwrap()
@@ -118,6 +143,8 @@ impl<'a> System<'a> for RendererResizeSystem {
     }
 
     fn setup(&mut self, world: &mut specs::prelude::World) {
+        Self::SystemData::setup(world);
+
         self.reader_id = Some(
             world
                 .fetch_mut::<EventChannel<WindowResized>>()

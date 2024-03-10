@@ -22,12 +22,6 @@ const VBO_SIZE: usize = 10000 * size_of::<MeshVertex>();
 const IBO_SIZE: usize = 100000 * size_of::<u32>();
 const MODEL_LEN: usize = 100;
 
-pub struct MeshRange {
-    pub vbo_offset: i32,
-    pub ibo_offset: u32,
-    pub ibo_count: u32,
-}
-
 pub struct VulkanFrame {
     pub framebuffer: vk::Framebuffer,
     pub image_index: u32,
@@ -37,20 +31,11 @@ pub struct VulkanFrame {
     pub setup_cmd_fence: vk::Fence,
     pub image_available_semaphore: vk::Semaphore,
     pub render_finished_semaphore: vk::Semaphore,
-    pub mesh_ranges: HashMap<MeshHandle, MeshRange>,
 
     pub deferred_set: vk::DescriptorSet,
     pub ambient_set: vk::DescriptorSet,
     pub directional_set: vk::DescriptorSet,
     pub floor_set: vk::DescriptorSet,
-
-    pub mesh_vbo: vk::Buffer,
-    pub mesh_vbo_memory: vk::DeviceMemory,
-    pub mesh_vbo_offset: usize,
-
-    pub mesh_ibo: vk::Buffer,
-    pub mesh_ibo_memory: vk::DeviceMemory,
-    pub mesh_ibo_offset: usize,
 
     pub deferred_ubo: vk::Buffer,
     pub deferred_ubo_memory: vk::DeviceMemory,
@@ -74,7 +59,6 @@ pub struct VulkanFrame {
 }
 
 pub struct VulkanFrameInfo {
-    pub present_image: vk::ImageView,
     pub render_pass: vk::RenderPass,
     pub extent: vk::Extent2D,
     pub image_index: u32,
@@ -133,20 +117,6 @@ impl VulkanFrame {
             vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
         let render_cmd_fence = unsafe { device.create_fence(&fence_create_info, None)? };
         let setup_cmd_fence = unsafe { device.create_fence(&fence_create_info, None)? };
-
-        let (mesh_vbo, mesh_vbo_memory) = create_buffer(
-            VBO_SIZE,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            device,
-        )?;
-
-        let (mesh_ibo, mesh_ibo_memory) = create_buffer(
-            IBO_SIZE,
-            vk::BufferUsageFlags::INDEX_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            device,
-        )?;
 
         let (deferred_ubo, deferred_ubo_memory) = create_buffer(
             size_of::<deferred::Ubo>(),
@@ -368,13 +338,6 @@ impl VulkanFrame {
             setup_cmd_fence,
             image_available_semaphore,
             render_finished_semaphore,
-            mesh_ranges: HashMap::new(),
-            mesh_vbo,
-            mesh_vbo_memory,
-            mesh_vbo_offset: 0,
-            mesh_ibo,
-            mesh_ibo_memory,
-            mesh_ibo_offset: 0,
             deferred_set: *deferred_set,
             deferred_ubo,
             deferred_ubo_memory,
@@ -396,85 +359,6 @@ impl VulkanFrame {
         };
 
         Ok(vulkan_frame)
-    }
-
-    pub fn upload_meshes(&mut self, meshes: &[*const Mesh], device: &VulkanDevice) -> Result<()> {
-        let (meshes, vbo_len, ibo_len) = meshes
-            .iter()
-            .map(|m| unsafe { &**m })
-            .filter(|m| !self.mesh_ranges.contains_key(&m.id))
-            .fold(
-                (Vec::new(), 0, 0),
-                |(mut meshes, mut vbo_len, mut ibo_len), mesh| {
-                    meshes.push(mesh);
-                    vbo_len += mesh.vertices.len();
-                    ibo_len += mesh.indices.len();
-                    (meshes, vbo_len, ibo_len)
-                },
-            );
-
-        if (self.mesh_vbo_offset + vbo_len) * size_of::<MeshVertex>() > VBO_SIZE {
-            bail!("Frame VBO overflow");
-        }
-
-        if (self.mesh_ibo_offset + ibo_len) * size_of::<u32>() > IBO_SIZE {
-            bail!("Frame IBO overflow");
-        }
-
-        let mut vbo_data = Vec::with_capacity(vbo_len);
-        let mut ibo_data = Vec::with_capacity(ibo_len);
-
-        let mut vbo_tmp_offset = self.mesh_vbo_offset as i32;
-        let mut ibo_tmp_offset = self.mesh_ibo_offset as u32;
-
-        for mesh in meshes.iter().cloned() {
-            let range = MeshRange {
-                vbo_offset: vbo_tmp_offset,
-                ibo_offset: ibo_tmp_offset,
-                ibo_count: mesh.indices.len() as u32,
-            };
-            self.mesh_ranges.insert(mesh.id, range);
-            vbo_tmp_offset += mesh.vertices.len() as i32;
-            ibo_tmp_offset += mesh.indices.len() as u32;
-            vbo_data.extend_from_slice(&mesh.vertices);
-            ibo_data.extend_from_slice(&mesh.indices);
-        }
-
-        unsafe {
-            let vbo_ptr = device.map_memory(
-                self.mesh_vbo_memory,
-                self.mesh_vbo_offset as u64 * size_of::<MeshVertex>() as u64,
-                size_of_val(&vbo_data) as u64,
-                vk::MemoryMapFlags::empty(),
-            )?;
-
-            let ibo_ptr = device.map_memory(
-                self.mesh_ibo_memory,
-                self.mesh_ibo_offset as u64 * size_of::<u32>() as u64,
-                size_of_val(&ibo_data) as u64,
-                vk::MemoryMapFlags::empty(),
-            )?;
-
-            let mut vbo_align = Align::<MeshVertex>::new(
-                vbo_ptr,
-                align_of::<MeshVertex>() as u64,
-                (size_of::<MeshVertex>() * vbo_data.len()) as u64,
-            );
-
-            let mut ibo_align = Align::<u32>::new(
-                ibo_ptr,
-                align_of::<MeshVertex>() as u64,
-                (size_of::<u32>() * ibo_data.len()) as u64,
-            );
-
-            ibo_align.copy_from_slice(&ibo_data);
-            vbo_align.copy_from_slice(&vbo_data);
-
-            device.unmap_memory(self.mesh_vbo_memory);
-            device.unmap_memory(self.mesh_ibo_memory);
-        }
-
-        Ok(())
     }
 
     pub fn recreate(
@@ -549,8 +433,6 @@ impl VulkanFrame {
             self.render_cmd = vk::CommandBuffer::null();
 
             let mut mems = [
-                self.mesh_vbo_memory,
-                self.mesh_ibo_memory,
                 self.deferred_ubo_memory,
                 self.ambient_ubo_memory,
                 self.directional_ubo_memory,
@@ -563,8 +445,6 @@ impl VulkanFrame {
             }
 
             let mut bufs = [
-                self.mesh_vbo,
-                self.mesh_ibo,
                 self.deferred_ubo,
                 self.ambient_ubo,
                 self.directional_ubo,

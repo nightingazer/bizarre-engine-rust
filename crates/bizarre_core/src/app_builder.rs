@@ -71,13 +71,8 @@ impl AppBuilder {
     ) where
         S: for<'a> specs::System<'a> + 'static + Send,
     {
-        match schedule_type {
-            ScheduleType::Frame => {
-                self.schedule_builder
-                    .with_frame_system(system, name, dependencies)
-            }
-            _ => unimplemented!("It is possible to assign a system only to the frame schedule"),
-        };
+        self.schedule_builder
+            .with_system(schedule_type, system, name, dependencies);
     }
 
     pub fn with_system<S>(
@@ -91,6 +86,19 @@ impl AppBuilder {
         S: for<'a> specs::System<'a> + 'static + Send,
     {
         self.add_system(schedule_type, system, name, dependencies);
+        self
+    }
+
+    pub fn add_barrier(&mut self, schedule_type: ScheduleType) {
+        let dispatcher = match schedule_type {
+            ScheduleType::Frame => self.schedule_builder.frame_dispatcher.as_mut().unwrap(),
+            ScheduleType::Setup => self.schedule_builder.setup_dispatcher.as_mut().unwrap(),
+        };
+        dispatcher.add_barrier();
+    }
+
+    pub fn with_barrier(mut self, schedule_type: ScheduleType) -> Self {
+        self.add_barrier(schedule_type);
         self
     }
 

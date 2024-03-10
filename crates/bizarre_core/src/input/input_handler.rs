@@ -1,3 +1,4 @@
+use bizarre_logger::core_debug;
 use nalgebra_glm::Vec2;
 use specs::shrev::EventChannel;
 
@@ -160,8 +161,8 @@ impl InputHandler {
 
     pub fn mouse_delta(&self) -> Vec2 {
         let mut delta = self.mouse_position;
-        delta[0] -= self.mouse_previous_position[0];
-        delta[1] -= self.mouse_previous_position[1];
+        delta.x -= self.mouse_previous_position.x;
+        delta.y -= self.mouse_previous_position.y;
         delta
     }
 

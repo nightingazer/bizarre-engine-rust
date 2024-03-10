@@ -24,11 +24,9 @@ pub struct RenderPackage {
     pub mesh_deletes: Vec<MeshDelete>,
     pub draw_submissions: Vec<DrawSubmission>,
 
-    pub view_projection: Option<Mat4>,
-    pub view: Option<Mat4>,
-    pub projection: Option<Mat4>,
-
-    pub camera_forward: Option<Vec3>,
+    pub view_projection: Mat4,
+    pub view: Mat4,
+    pub projection: Mat4,
 
     pub avg_frame_time_ms: f64,
     pub last_frame_time_ms: f64,

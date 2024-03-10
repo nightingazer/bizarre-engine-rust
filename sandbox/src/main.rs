@@ -9,10 +9,10 @@ mod sandbox_layer;
 fn main() {
     let mut app = App::builder()
         .name("Bizarre Engine")
-        .with_layer(VisualLayer::default())
         .with_layer(InputLayer::default())
-        .with_layer(SandboxLayer::default())
+        .with_layer(VisualLayer::default())
         .with_layer(CameraLayer::default())
+        .with_layer(SandboxLayer::default())
         .build()
         .expect("Failed to build the App");
 

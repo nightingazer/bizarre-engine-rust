@@ -12,14 +12,16 @@ use ash::{
 use bizarre_logger::{core_debug, core_error};
 use nalgebra_glm::{Mat4, Vec3};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use thiserror::Error;
 
 use crate::{
     material::{
         pass::MaterialPassType,
         pipeline_features::{CullMode, PipelineFeatureFlags, PipelineFeatures, PrimitiveTopology},
     },
-    mesh_loader::{get_mesh_loader, MeshHandle},
+    mesh_loader::{self, get_mesh_loader, get_mesh_loader_mut, MeshHandle},
     render_package::{MeshUpload, RenderPackage},
+    scene::RenderScene,
     vertex::{MeshVertex, PositionVertex, Vertex},
     vulkan::{
         device::VulkanDevice,
@@ -33,9 +35,15 @@ use crate::{
     vulkan_utils::{buffer::create_buffer, shader::ShaderStage},
 };
 
+#[derive(Error, Debug)]
+pub enum RenderException {
+    #[error("Render skipped due to suboptimal swapchain state")]
+    RenderSkippedOutOfDate,
+}
+
 pub struct Renderer {
-    instance: VulkanInstance,
-    device: VulkanDevice,
+    pub instance: VulkanInstance,
+    pub device: VulkanDevice,
     descriptor_pool: vk::DescriptorPool,
     cmd_pool: vk::CommandPool,
     max_msaa: vk::SampleCountFlags,
@@ -47,12 +55,6 @@ pub struct Renderer {
     render_pass: VulkanRenderPass,
     frames: Vec<VulkanFrame>,
     max_frames_in_flight: usize,
-
-    pending_mesh_uploads: Vec<Vec<MeshUpload>>,
-    pending_view_projection: Vec<Option<Mat4>>,
-    pending_view: Vec<Option<Mat4>>,
-    pending_projection: Vec<Option<Mat4>>,
-    pending_camera_forward: Vec<Option<Vec3>>,
 
     deferred_pipeline: VulkanPipeline,
     ambient_pipeline: VulkanPipeline,
@@ -221,12 +223,11 @@ impl Renderer {
         let frames = swapchain_image_views
             .iter()
             .enumerate()
-            .map(|(i, present_image)| {
+            .map(|(i, _)| {
                 VulkanFrame::new(
                     &VulkanFrameInfo {
                         extent: window_extent,
                         image_index: i as u32,
-                        present_image: *present_image,
                         render_pass: render_pass.handle,
                         cmd_pool,
                         deferred_set_layout: deferred_pipeline.set_layout,
@@ -292,11 +293,6 @@ impl Renderer {
             max_frames_in_flight,
             surface_extent: window_extent,
             deferred_pipeline,
-            pending_mesh_uploads: vec![Vec::new(); max_frames_in_flight],
-            pending_view_projection: vec![Some(Mat4::identity()); max_frames_in_flight],
-            pending_view: vec![Some(Mat4::identity()); max_frames_in_flight],
-            pending_projection: vec![Some(Mat4::identity()); max_frames_in_flight],
-            pending_camera_forward: vec![Some(Vec3::zeros()); max_frames_in_flight],
             ambient_pipeline,
             directional_pipeline,
             floor_pipeline,
@@ -307,7 +303,57 @@ impl Renderer {
         Ok(system)
     }
 
-    pub fn render(&mut self, render_package: &RenderPackage) -> Result<()> {
+    pub fn render(
+        &mut self,
+        render_package: &RenderPackage,
+        render_scene: &mut RenderScene,
+    ) -> Result<()> {
+        self.prepare_scene(render_package, render_scene)?;
+        let (present_index, mut suboptimal) =
+            match self.render_to_image(render_package, render_scene) {
+                Ok((present_index, suboptimal)) => (present_index, suboptimal),
+                Err(err) => match err.downcast_ref::<RenderException>() {
+                    Some(RenderException::RenderSkippedOutOfDate) => return Ok(()),
+                    Some(_) => return Err(err),
+                    None => return Err(err),
+                },
+            };
+        suboptimal |= match self.present_image(present_index) {
+            Ok(suboptimal) => suboptimal,
+            Err(err) => return Err(err),
+        };
+
+        if suboptimal {
+            self.recreate_swapchain()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn prepare_scene(
+        &mut self,
+        render_package: &RenderPackage,
+        render_scene: &mut RenderScene,
+    ) -> Result<()> {
+        if !render_package.mesh_uploads.is_empty() {
+            let mesh_loader = get_mesh_loader();
+            let meshes = render_package
+                .mesh_uploads
+                .iter()
+                .filter_map(|mu| mesh_loader.get(mu.mesh))
+                .collect::<Vec<_>>();
+            render_scene.upload_meshes(&meshes, &self.device)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn render_to_image(
+        &mut self,
+        render_package: &RenderPackage,
+        render_scene: &RenderScene,
+    ) -> Result<(usize, bool)> {
+        let mut render_suboptimal = false;
         let image_available_semaphore = unsafe {
             let create_info = vk::SemaphoreCreateInfo::default();
 
@@ -330,21 +376,17 @@ impl Renderer {
             );
 
             match acquire_result {
-                Ok((present_index, false)) => present_index,
-                Ok((_, true)) => {
-                    core_debug!("Recreating swapchain: suboptimal");
-                    self.device
-                        .destroy_semaphore(image_available_semaphore, None);
-                    self.recreate_swapchain()?;
-                    return Ok(());
+                Ok((present_index, suboptimal)) => {
+                    render_suboptimal = suboptimal;
+                    present_index
                 }
                 Err(result) => match result {
-                    vk::Result::SUBOPTIMAL_KHR | vk::Result::ERROR_OUT_OF_DATE_KHR => {
+                    vk::Result::ERROR_OUT_OF_DATE_KHR => {
                         core_debug!("Recreating swapchain: out of date");
                         self.device
                             .destroy_semaphore(image_available_semaphore, None);
                         self.recreate_swapchain()?;
-                        return Ok(());
+                        return Err(RenderException::RenderSkippedOutOfDate.into());
                     }
                     _ => bail!(result),
                 },
@@ -389,10 +431,6 @@ impl Renderer {
             },
         ];
 
-        self.update_frames(present_index, render_package)?;
-
-        let frame = &mut self.frames[present_index];
-
         let cmd_begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
             .build();
@@ -400,7 +438,7 @@ impl Renderer {
         let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
             .render_pass(*self.render_pass)
             .clear_values(&clear_values)
-            .framebuffer(frame.framebuffer)
+            .framebuffer(self.frames[present_index].framebuffer)
             .render_area(self.surface_extent.into())
             .build();
 
@@ -428,6 +466,30 @@ impl Renderer {
         };
 
         unsafe {
+            let ubo = self
+                .device
+                .map_memory(
+                    self.frames[present_index].deferred_ubo_memory,
+                    0,
+                    size_of::<deferred::Ubo>() as u64,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast::<deferred::Ubo>()
+                .as_mut()
+                .unwrap();
+
+            ubo.view_projection = render_package.view_projection;
+            let dst_ptr = ubo.model.as_mut_ptr();
+            let src_ptr = model_matrices.as_slice().as_ptr();
+
+            std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, model_matrices.len());
+
+            self.device
+                .unmap_memory(self.frames[present_index].deferred_ubo_memory)
+        }
+
+        unsafe {
+            let frame = &mut self.frames[present_index];
             let fences = [frame.render_cmd_fence];
             self.device.wait_for_fences(&fences, true, u64::MAX)?;
 
@@ -463,77 +525,19 @@ impl Renderer {
                 self.deferred_pipeline.handle,
             );
 
-            self.device
-                .cmd_bind_vertex_buffers(frame.render_cmd, 0, &[frame.mesh_vbo], &[0]);
+            self.device.cmd_bind_vertex_buffers(
+                frame.render_cmd,
+                0,
+                &[render_scene.vbo.buffer],
+                &[0],
+            );
 
             self.device.cmd_bind_index_buffer(
                 frame.render_cmd,
-                frame.mesh_ibo,
+                render_scene.ibo.buffer,
                 0,
                 vk::IndexType::UINT32,
             );
-
-            let deferred_uniform_mem = self
-                .device
-                .map_memory(
-                    frame.deferred_ubo_memory,
-                    0,
-                    size_of::<deferred::Ubo>() as vk::DeviceSize,
-                    vk::MemoryMapFlags::empty(),
-                )?
-                .cast::<deferred::Ubo>();
-
-            let _ambient_uniform_mem = self
-                .device
-                .map_memory(
-                    frame.ambient_ubo_memory,
-                    0,
-                    size_of::<ambient::Ubo>() as vk::DeviceSize,
-                    vk::MemoryMapFlags::empty(),
-                )?
-                .cast::<ambient::Ubo>();
-
-            let floor_ubo_mem = self
-                .device
-                .map_memory(
-                    frame.floor_ubo_memory,
-                    0,
-                    size_of::<floor::Ubo>() as vk::DeviceSize,
-                    vk::MemoryMapFlags::empty(),
-                )?
-                .cast::<floor::Ubo>();
-
-            (*deferred_uniform_mem).model[..model_matrices.len()].copy_from_slice(&model_matrices);
-
-            if let Some(view_projection) = self.pending_view_projection[present_index] {
-                (*deferred_uniform_mem).view_projection = view_projection;
-                self.pending_view_projection[present_index] = None;
-            }
-
-            if let Some(view) = self.pending_view[present_index] {
-                (*floor_ubo_mem).view = view;
-                self.pending_view[present_index] = None;
-            }
-
-            if let Some(projection) = self.pending_projection[present_index] {
-                (*floor_ubo_mem).projection = projection;
-                self.pending_projection[present_index] = None;
-            }
-
-            if let Some(view_projection) = render_package.view_projection {
-                (*deferred_uniform_mem).view_projection = view_projection;
-            }
-
-            if let Some(view) = render_package.view {
-                (*floor_ubo_mem).view = view;
-            }
-            if let Some(projection) = render_package.projection {
-                (*floor_ubo_mem).projection = projection;
-            }
-
-            self.device.unmap_memory(frame.deferred_ubo_memory);
-            self.device.unmap_memory(frame.ambient_ubo_memory);
-            self.device.unmap_memory(frame.floor_ubo_memory);
 
             self.device.cmd_bind_descriptor_sets(
                 frame.render_cmd,
@@ -546,15 +550,17 @@ impl Renderer {
 
             let mut current_instance = 0;
             for (handle, count) in unique_handles.iter().zip(intance_counts.iter()) {
-                let mesh_range = frame.mesh_ranges.get(handle).unwrap();
-                self.device.cmd_draw_indexed(
-                    frame.render_cmd,
-                    mesh_range.ibo_count,
-                    *count,
-                    mesh_range.ibo_offset,
-                    mesh_range.vbo_offset,
-                    current_instance,
-                );
+                match render_scene.mesh_ranges.get(handle) {
+                    Some(mesh_range) => self.device.cmd_draw_indexed(
+                        frame.render_cmd,
+                        mesh_range.ibo_count,
+                        *count,
+                        mesh_range.ibo_offset,
+                        mesh_range.vbo_offset,
+                        current_instance,
+                    ),
+                    _ => panic!("Failed to get range for mesh {:?}", handle),
+                };
 
                 current_instance += *count;
             }
@@ -607,6 +613,25 @@ impl Renderer {
                 vk::PipelineBindPoint::GRAPHICS,
                 self.floor_pipeline.handle,
             );
+
+            {
+                let ubo = self
+                    .device
+                    .map_memory(
+                        frame.floor_ubo_memory,
+                        0,
+                        size_of::<floor::Ubo>() as u64,
+                        vk::MemoryMapFlags::empty(),
+                    )?
+                    .cast::<floor::Ubo>()
+                    .as_mut()
+                    .unwrap();
+
+                ubo.projection = render_package.projection;
+                ubo.view = render_package.view;
+
+                self.device.unmap_memory(frame.floor_ubo_memory);
+            }
 
             self.device.cmd_bind_descriptor_sets(
                 frame.render_cmd,
@@ -693,35 +718,38 @@ impl Renderer {
                 &[submit_info],
                 frame.render_cmd_fence,
             )?;
+        }
 
-            let swapchains = [self.swapchain.handle];
-            let indices = [present_index as u32];
-            let wait_semaphores = [frame.render_finished_semaphore];
-            let present_info = vk::PresentInfoKHR::builder()
-                .wait_semaphores(&wait_semaphores)
-                .swapchains(&swapchains)
-                .image_indices(&indices)
-                .build();
+        Ok((present_index, render_suboptimal))
+    }
 
-            let present_result = self
-                .swapchain
+    /// Present image to swapchain,
+    /// Returns if the present was suboptimal
+    fn present_image(&mut self, present_index: usize) -> Result<bool> {
+        let swapchains = [self.swapchain.handle];
+        let indices = [present_index as u32];
+        let wait_semaphores = [self.frames[present_index].render_finished_semaphore];
+        let present_info = vk::PresentInfoKHR::builder()
+            .wait_semaphores(&wait_semaphores)
+            .swapchains(&swapchains)
+            .image_indices(&indices)
+            .build();
+
+        let present_result = unsafe {
+            self.swapchain
                 .swapchain_loader
-                .queue_present(self.device.present_queue, &present_info);
+                .queue_present(self.device.present_queue, &present_info)
+        };
 
-            match present_result {
-                Ok(true) => {
+        match present_result {
+            Err(err) => match err {
+                vk::Result::ERROR_OUT_OF_DATE_KHR => {
                     self.recreate_swapchain()?;
-                    Ok(())
+                    Ok(false)
                 }
-                Err(err) => match err {
-                    vk::Result::ERROR_OUT_OF_DATE_KHR | vk::Result::SUBOPTIMAL_KHR => {
-                        self.recreate_swapchain()?;
-                        Ok(())
-                    }
-                    _ => Err(anyhow!("Renderer: Failed to present an image: {err}")),
-                },
-                _ => Ok(()),
-            }
+                _ => Err(anyhow!("Renderer: Failed to present an image: {err}")),
+            },
+            _ => present_result.map_err(|err| anyhow!("{}", err)),
         }
     }
 
@@ -777,95 +805,17 @@ impl Renderer {
         }
     }
 
-    fn update_frames(
-        &mut self,
-        present_index: usize,
-        render_package: &RenderPackage,
-    ) -> Result<(), anyhow::Error> {
-        let frame = &mut self.frames[present_index];
-
-        if !self.pending_mesh_uploads[present_index].is_empty() {
-            let mesh_loader = get_mesh_loader();
-            let meshes = {
-                self.pending_mesh_uploads[present_index]
-                    .drain(..)
-                    .map(|m| mesh_loader.get(m.mesh))
-                    .collect::<Result<Vec<_>>>()?
-            };
-            frame.upload_meshes(&meshes, &self.device)?;
-        }
-        if !render_package.mesh_uploads.is_empty() {
-            let mesh_loader = get_mesh_loader();
-            let meshes = {
-                render_package
-                    .mesh_uploads
-                    .iter()
-                    .map(|m| mesh_loader.get(m.mesh))
-                    .collect::<Result<Vec<_>>>()?
-            };
-
-            frame.upload_meshes(&meshes, &self.device)?;
-
-            for (i, pending) in self.pending_mesh_uploads.iter_mut().enumerate() {
-                if i == present_index {
-                    continue;
-                }
-
-                pending.extend(render_package.mesh_uploads.clone());
-            }
-        }
-        Ok(
-            if let Some(view_projection) = render_package.view_projection {
-                for (i, pending) in self.pending_view_projection.iter_mut().enumerate() {
-                    if i == present_index {
-                        continue;
-                    }
-
-                    *pending = Some(view_projection);
-                }
-
-                if let Some(view) = render_package.view {
-                    for (i, pending) in self.pending_view.iter_mut().enumerate() {
-                        if i == present_index {
-                            continue;
-                        }
-
-                        *pending = Some(view);
-                    }
-                }
-
-                if let Some(projection) = render_package.projection {
-                    for (i, pending) in self.pending_projection.iter_mut().enumerate() {
-                        if i == present_index {
-                            continue;
-                        }
-
-                        *pending = Some(projection);
-                    }
-                }
-
-                if let Some(camera_forward) = render_package.camera_forward {
-                    for (i, pending) in self.pending_camera_forward.iter_mut().enumerate() {
-                        if i == present_index {
-                            continue;
-                        }
-
-                        *pending = Some(camera_forward);
-                    }
-                }
-            },
-        )
-    }
-
     pub fn resize(&mut self, size: [u32; 2]) {
-        self.surface_extent = vk::Extent2D {
+        let extent = vk::Extent2D {
             width: size[0],
             height: size[1],
         };
 
-        self.viewport = create_viewport(self.surface_extent);
+        if self.surface_extent == extent {
+            return;
+        }
 
-        core_debug!("Resizing renderer: {:?}", size);
+        self.surface_extent = extent;
 
         if let Err(err) = self.recreate_swapchain() {
             core_error!("Failed to resize, failed to recreate swapchain: {}", err)
@@ -877,7 +827,9 @@ impl Renderer {
             self.device.device_wait_idle()?;
         }
 
-        self.swapchain.recreate(self.surface, &self.device)?;
+        self.surface_extent = self.swapchain.recreate(self.surface, &self.device)?;
+
+        self.viewport = create_viewport(self.surface_extent);
 
         for frame in self.frames.iter_mut() {
             frame.recreate(

@@ -6,7 +6,7 @@ use bizarre_core::{
     schedule::{ScheduleBuilder, ScheduleType},
 };
 
-use bizarre_logger::core_warn;
+use bizarre_logger::{core_debug, core_info, core_warn};
 use bizarre_render::{
     render_components::{free_camera::FreeCameraComponent, ActiveCamera, Camera, CameraProjection},
     render_submitter::RenderSubmitter,
@@ -53,18 +53,15 @@ impl<'a> System<'a> for CameraSystem {
 
         let (camera, _) = active_camera.unwrap();
 
-        let projection_updated = match window_resize_channel
+        match window_resize_channel
             .read(&mut self.reader_id.as_mut().unwrap())
             .last()
         {
             Some(ev) => {
                 camera.update_aspect_ratio(ev.width / ev.height);
-                true
             }
-            None => false,
+            None => {}
         };
-
-        let mut view_updated = false;
 
         if input.is_key_pressed(&KeyboardKey::W, &KeyboardModifiers::empty()) {
             let direction = {
@@ -73,7 +70,6 @@ impl<'a> System<'a> for CameraSystem {
                 base.normalize()
             };
             camera.position += direction * BASE_CAMERA_SPEED * delta_time;
-            view_updated = true;
         }
         if input.is_key_pressed(&KeyboardKey::S, &KeyboardModifiers::empty()) {
             let direction = {
@@ -82,7 +78,6 @@ impl<'a> System<'a> for CameraSystem {
                 base.normalize()
             };
             camera.position -= direction * BASE_CAMERA_SPEED * delta_time;
-            view_updated = true;
         }
         if input.is_key_pressed(&KeyboardKey::A, &KeyboardModifiers::empty()) {
             let direction = {
@@ -91,7 +86,6 @@ impl<'a> System<'a> for CameraSystem {
                 base.normalize()
             };
             camera.position -= direction * BASE_CAMERA_SPEED * delta_time;
-            view_updated = true;
         }
         if input.is_key_pressed(&KeyboardKey::D, &KeyboardModifiers::empty()) {
             let direction = {
@@ -100,31 +94,25 @@ impl<'a> System<'a> for CameraSystem {
                 base.normalize()
             };
             camera.position += direction * BASE_CAMERA_SPEED * delta_time;
-            view_updated = true;
         }
         if input.is_key_pressed(&KeyboardKey::Q, &KeyboardModifiers::empty()) {
             camera.position.y -= BASE_CAMERA_SPEED * delta_time;
-            view_updated = true;
         }
         if input.is_key_pressed(&KeyboardKey::E, &KeyboardModifiers::empty()) {
             camera.position.y += BASE_CAMERA_SPEED * delta_time;
-            view_updated = true;
         }
 
         if input.is_key_pressed(&KeyboardKey::Z, &KeyboardModifiers::empty()) {
             camera.yaw = 180.0;
             camera.pitch = 0.0;
-            view_updated = true;
         }
         if input.is_key_pressed(&KeyboardKey::X, &KeyboardModifiers::empty()) {
             camera.yaw = 90.0;
             camera.pitch = 0.0;
-            view_updated = true;
         }
         if input.is_key_pressed(&KeyboardKey::Y, &KeyboardModifiers::empty()) {
             camera.yaw = 0.0;
             camera.pitch = 90.0;
-            view_updated = true;
         }
 
         if input.is_button_pressed(&MouseButton::Right, &KeyboardModifiers::empty()) {
@@ -134,17 +122,11 @@ impl<'a> System<'a> for CameraSystem {
                 camera.yaw += mouse_delta.x * 0.1;
                 camera.pitch += -mouse_delta.y * 0.1;
                 camera.pitch = camera.pitch.clamp(-89.0, 89.0);
-                view_updated = true;
             }
         }
 
-        if view_updated {
-            submitter.update_view(camera.get_view_mat());
-            submitter.update_camera_forward(camera.forward());
-        }
-        if projection_updated {
-            submitter.update_projection(camera.get_projection_mat());
-        }
+        submitter.update_view(camera.get_view_mat());
+        submitter.update_projection(camera.get_projection_mat());
     }
 
     fn setup(&mut self, world: &mut specs::prelude::World) {

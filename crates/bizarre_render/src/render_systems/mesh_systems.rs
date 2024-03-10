@@ -1,6 +1,7 @@
+use bizarre_logger::core_debug;
 use specs::{
     shrev::EventChannel, storage::ComponentEvent, Entities, Join, Read, ReadStorage, ReaderId,
-    System, SystemData, Write, WriteStorage,
+    System, SystemData, WorldExt, Write, WriteStorage,
 };
 
 use crate::{
@@ -9,9 +10,14 @@ use crate::{
     render_submitter::RenderSubmitter,
 };
 
-pub struct DrawMeshSystem;
+#[derive(Default)]
+pub struct MeshDrawRequestSystem;
 
-impl<'a> System<'a> for DrawMeshSystem {
+impl MeshDrawRequestSystem {
+    pub const DEFAULT_NAME: &'static str = "mesh_draw_request";
+}
+
+impl<'a> System<'a> for MeshDrawRequestSystem {
     type SystemData = (
         Write<'a, RenderSubmitter>,
         ReadStorage<'a, MeshComponent>,
@@ -33,9 +39,8 @@ impl<'a> System<'a> for DrawMeshSystem {
     }
 }
 
-#[derive(Default)]
 pub struct MeshManagementSystem {
-    pub reader_id: Option<ReaderId<ComponentEvent>>,
+    pub reader_id: ReaderId<ComponentEvent>,
 }
 
 impl MeshManagementSystem {
@@ -52,7 +57,7 @@ impl<'a> System<'a> for MeshManagementSystem {
     fn run(&mut self, data: Self::SystemData) {
         let (mut submitter, meshes, entities) = data;
 
-        let events = meshes.channel().read(&mut self.reader_id.as_mut().unwrap());
+        let events = meshes.channel().read(&mut self.reader_id);
 
         for event in events {
             match event {
@@ -69,10 +74,5 @@ impl<'a> System<'a> for MeshManagementSystem {
                 _ => {}
             }
         }
-    }
-
-    fn setup(&mut self, world: &mut specs::prelude::World) {
-        Self::SystemData::setup(world);
-        self.reader_id = Some(WriteStorage::<MeshComponent>::fetch(world).register_reader());
     }
 }

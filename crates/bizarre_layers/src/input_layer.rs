@@ -5,13 +5,14 @@ use bizarre_core::{
     layer::Layer,
     schedule::{ScheduleBuilder, ScheduleType},
 };
-use specs::{shrev::EventChannel, System, WorldExt, Write};
+use specs::{shrev::EventChannel, ReaderId, System, WorldExt, Write};
 
 use crate::visual_layer::WinitEventSystem;
 
 #[derive(Default)]
 pub struct InputLayer;
 
+#[derive(Default)]
 pub struct InputHandlerUpdate;
 
 impl InputHandlerUpdate {
@@ -39,7 +40,7 @@ impl Layer for InputLayer {
             ScheduleType::Frame,
             InputHandlerUpdate,
             InputHandlerUpdate::DEFAULT_NAME,
-            &[WinitEventSystem::DEFAULT_NAME],
+            &[],
         );
 
         Ok(())

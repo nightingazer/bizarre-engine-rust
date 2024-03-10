@@ -1,3 +1,4 @@
+pub mod buffer;
 pub mod device;
 pub mod frame;
 pub mod image;

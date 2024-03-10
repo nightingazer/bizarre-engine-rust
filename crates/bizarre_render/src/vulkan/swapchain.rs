@@ -81,7 +81,11 @@ impl VulkanSwapchain {
         })
     }
 
-    pub fn recreate(&mut self, surface: vk::SurfaceKHR, device: &VulkanDevice) -> Result<()> {
+    pub fn recreate(
+        &mut self,
+        surface: vk::SurfaceKHR,
+        device: &VulkanDevice,
+    ) -> Result<vk::Extent2D> {
         self.destroy(device)?;
 
         let (surface_capabilities, present_modes) = unsafe {
@@ -112,7 +116,7 @@ impl VulkanSwapchain {
             device,
         )?;
 
-        Ok(())
+        Ok(surface_capabilities.current_extent)
     }
 
     pub fn destroy(&mut self, device: &VulkanDevice) -> Result<()> {

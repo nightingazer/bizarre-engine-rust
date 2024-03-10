@@ -62,6 +62,10 @@ impl App {
         self.world.insert(RunningTime(Duration::from_secs(0)));
         self.world.insert(DebugStats::default());
 
+        self.schedule.setup_dispatcher.setup(&mut self.world);
+        self.schedule.setup_dispatcher.dispatch(&self.world);
+        self.world.maintain();
+
         self.schedule.frame_dispatcher.setup(&mut self.world);
 
         self.running = true;

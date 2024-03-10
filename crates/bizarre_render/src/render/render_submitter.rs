@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use bizarre_logger::core_debug;
 use nalgebra_glm::{Mat4, Vec3};
 
 use crate::{
@@ -17,9 +18,6 @@ pub struct RenderSubmitter {
     directional_lights: Vec<DirectionalLight>,
     view: Mat4,
     projection: Mat4,
-    camera_forward: Option<Vec3>,
-    view_was_updated: bool,
-    projection_was_updated: bool,
 
     frame_index: usize,
     frame_times_ms: [Option<f64>; 100],
@@ -41,9 +39,6 @@ impl RenderSubmitter {
             ambient_light: None,
             view: Mat4::identity(),
             projection: Mat4::identity(),
-            view_was_updated: false,
-            projection_was_updated: false,
-            camera_forward: None,
             frame_index: 0,
             frame_times_ms: [None; 100],
         }
@@ -71,16 +66,10 @@ impl RenderSubmitter {
 
     pub fn update_view(&mut self, view: Mat4) {
         self.view = view;
-        self.view_was_updated = true;
     }
 
     pub fn update_projection(&mut self, projection: Mat4) {
         self.projection = projection;
-        self.projection_was_updated = true;
-    }
-
-    pub fn update_camera_forward(&mut self, camera_forward: Vec3) {
-        self.camera_forward = Some(camera_forward);
     }
 
     pub fn submit_frame_time(&mut self, frame_time_ms: f64) {
@@ -108,43 +97,15 @@ impl RenderSubmitter {
             !is_first
         });
 
-        let (view, projection, view_projection) =
-            match (self.view_was_updated, self.projection_was_updated) {
-                (true, true) => {
-                    self.view_was_updated = false;
-                    self.projection_was_updated = false;
-                    (
-                        Some(self.view),
-                        Some(self.projection),
-                        Some(self.projection * self.view),
-                    )
-                }
-
-                (true, false) => {
-                    self.view_was_updated = false;
-                    (Some(self.view), None, Some(self.projection * self.view))
-                }
-                (false, true) => {
-                    self.projection_was_updated = false;
-                    (
-                        None,
-                        Some(self.projection),
-                        Some(self.projection * self.view),
-                    )
-                }
-                (false, false) => (None, None, None),
-            };
-
         let package = RenderPackage {
             mesh_uploads: self.mesh_uploads.clone(),
             mesh_deletes: Vec::new(),
             draw_submissions: self.draw_submissions.clone(),
             avg_frame_time_ms: avg_frame_time,
             last_frame_time_ms: last_frame_time,
-            view,
-            projection,
-            view_projection,
-            camera_forward: self.camera_forward.take(),
+            view: self.view,
+            projection: self.projection,
+            view_projection: self.projection * self.view,
         };
 
         self.draw_submissions.clear();

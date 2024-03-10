@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::Result;
 use bizarre_common::handle::Handle;
+use bizarre_logger::core_error;
 use bizarre_memory::{Constructor, SyncArenaChunk, TypedArena};
 
 use crate::mesh::{load_meshes_from_obj, Mesh};
@@ -50,8 +51,7 @@ impl MeshLoader {
             .map(|mesh| {
                 let handle = mesh.id;
                 let ptr = self.arena.construct(mesh)?;
-                self.map
-                    .insert(handle, unsafe { Box::from_raw(ptr) });
+                self.map.insert(handle, unsafe { Box::from_raw(ptr) });
                 Ok(handle)
             })
             .collect::<Result<Vec<_>>>()?;
@@ -59,10 +59,12 @@ impl MeshLoader {
         Ok(handles)
     }
 
-    pub fn get(&self, handle: MeshHandle) -> Result<*const Mesh> {
+    pub fn get(&self, handle: MeshHandle) -> Option<*const Mesh> {
         if !self.map.contains_key(&handle) {
-            anyhow::bail!("Mesh with handle {:?} not found", handle);
+            core_error!("Mesh with handle {:?} not found", handle);
+            None
+        } else {
+            Some(&*self.map[&handle] as *const Mesh)
         }
-        Ok(&*self.map[&handle] as *const Mesh)
     }
 }
