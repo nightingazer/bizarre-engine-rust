@@ -1,7 +1,9 @@
 use std::{default, marker::PhantomData, sync::Once};
 
 use anyhow::Result;
-use bizarre_logger::{core_info, global_loggers::logging_thread_start, logger_impl::Logger};
+use bizarre_logger::{
+    core_critical, core_debug, core_info, global_loggers::logging_thread_start, logger_impl::Logger,
+};
 use specs::{World, WorldExt};
 
 use crate::{
@@ -26,6 +28,7 @@ pub struct AppBuilder {
     pub name: Option<Box<str>>,
     pub schedule_builder: ScheduleBuilder,
     pub world: specs::World,
+    pub layers: Vec<(Box<dyn Layer>, &'static str)>,
 }
 
 #[cfg(debug_assertions)]
@@ -54,11 +57,12 @@ impl AppBuilder {
         self
     }
 
-    pub fn with_layer<L>(mut self, mut layer: L) -> Self
+    pub fn with_layer<L>(mut self, layer: L) -> Self
     where
         L: Layer + 'static,
     {
-        layer.on_attach(&mut self);
+        self.layers
+            .push((Box::new(layer), std::any::type_name::<L>()));
         self
     }
 
@@ -109,6 +113,19 @@ impl AppBuilder {
             .expect("Cannot create an app without a name");
 
         core_info!("Started the logger thread!");
+
+        let layers = std::mem::take(&mut self.layers);
+
+        for (mut layer, type_name) in layers {
+            core_debug!("AppBuilder: attaching layer {}", type_name);
+            if let Err(err) = layer.on_attach(&mut self) {
+                let msg = format!("Failed to attach the layer: {err:?}");
+                core_critical!(msg);
+                panic!("{msg}");
+            }
+        }
+
+        self.world.maintain();
 
         Ok(App {
             world: self.world,

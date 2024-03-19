@@ -7,10 +7,7 @@ use bizarre_logger::{core_critical, core_info, global_loggers::logging_thread_jo
 use specs::{shrev::EventChannel, ReaderId, WorldExt};
 
 use crate::{
-    app_builder::{AppBuilder, No},
-    app_events::AppCloseRequestedEvent,
-    debug_stats::DebugStats,
-    layer::Layer,
+    app_builder::AppBuilder, app_events::AppCloseRequestedEvent, debug_stats::DebugStats,
     schedule::Schedule,
 };
 

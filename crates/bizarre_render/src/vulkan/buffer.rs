@@ -57,8 +57,9 @@ impl<T> VulkanBuffer<T> {
     }
 
     pub fn unmap_memory(&self, ptr: Box<T>, device: &VulkanDevice) {
+        #[allow(dropping_copy_types)]
+        drop(Box::into_raw(ptr));
         unsafe { device.unmap_memory(self.memory) }
-        drop(ptr);
     }
 }
 

@@ -1,7 +1,7 @@
 use nalgebra_glm::Vec3;
 
 use crate::{
-    material::binding::{BindingType, MaterialBinding},
+    material::binding::{BindingType, MaterialBinding, MaterialBindingRate},
     vulkan_utils::shader::ShaderStage,
 };
 
@@ -20,18 +20,21 @@ pub const fn material_bindings() -> [MaterialBinding; 3] {
             set: 0,
             shader_stage: ShaderStage::Fragment,
             binding_type: BindingType::UniformBuffer,
+            binding_rate: MaterialBindingRate::PerFrame,
         },
         MaterialBinding {
             binding: 1,
             set: 0,
             shader_stage: ShaderStage::Fragment,
             binding_type: BindingType::InputAttachment,
+            binding_rate: MaterialBindingRate::PerFrame,
         },
         MaterialBinding {
             binding: 2,
             set: 0,
             shader_stage: ShaderStage::Fragment,
             binding_type: BindingType::InputAttachment,
+            binding_rate: MaterialBindingRate::PerFrame,
         },
     ]
 }

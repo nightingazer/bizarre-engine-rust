@@ -1,25 +1,19 @@
 use std::path::PathBuf;
 
-use crate::{vulkan::pipeline::VulkanPipeline, vulkan_utils::shader::ShaderStage};
+use ash::vk::ShaderRequiredSubgroupSizeCreateInfoEXT;
 
-use super::binding::MaterialBinding;
+use crate::{
+    vulkan::{
+        device::VulkanDevice,
+        pipeline::{VulkanPipeline, VulkanPipelineRequirements},
+    },
+    vulkan_utils::shader::ShaderStage,
+};
 
-#[repr(usize)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
-pub enum MaterialPassType {
-    #[default]
-    Geometry,
-    Lighting,
-    Translucent,
-}
+use super::binding::{MaterialBinding, MaterialBindingRate};
 
 #[derive(Debug, Clone)]
 pub struct MaterialPassStage {
     pub shader_path: PathBuf,
     pub shader_stage: ShaderStage,
-}
-
-pub struct MaterialPipeline {
-    pub pipeline: VulkanPipeline,
-    pub bindings: Box<[MaterialBinding]>,
 }

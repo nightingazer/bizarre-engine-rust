@@ -97,7 +97,7 @@ impl VulkanDevice {
 
         pdevices_map.sort_by(|a, b| a.1.cmp(&b.1).reverse());
 
-        if pdevices_map.first().is_none() || pdevices_map.first().unwrap().1 <= 0 {
+        if pdevices_map.first().is_none() || pdevices_map.first().unwrap().1 == 0 {
             bail!("Failed to find suitable physical device");
         }
 
@@ -109,6 +109,7 @@ impl VulkanDevice {
         let device_extension_names_raw = [khr::Swapchain::name().as_ptr()];
         let pdevice_features = vk::PhysicalDeviceFeatures::builder()
             .shader_clip_distance(true)
+            .sample_rate_shading(true)
             .build();
         let priorities = [1.0];
         let queue_info = vk::DeviceQueueCreateInfo::builder()

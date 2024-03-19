@@ -8,7 +8,10 @@ use ash::vk::ExtPrimitivesGeneratedQueryFn;
 use bizarre_logger::core_error;
 use specs::{Read, System, Write};
 
-use crate::{render_submitter::RenderSubmitter, scene::RenderScene, Renderer};
+use crate::{
+    material_loader::MaterialLoader, render_submitter::RenderSubmitter, scene::RenderScene,
+    Renderer,
+};
 
 pub struct RendererUpdateSystem;
 
@@ -21,12 +24,16 @@ impl<'a> System<'a> for RendererUpdateSystem {
         Write<'a, RenderSubmitter>,
         Write<'a, RendererResource>,
         Write<'a, RenderScene>,
+        Read<'a, MaterialLoader>,
     );
 
-    fn run(&mut self, (mut submitter, renderer, mut render_scene): Self::SystemData) {
+    fn run(
+        &mut self,
+        (mut submitter, renderer, mut render_scene, material_loader): Self::SystemData,
+    ) {
         let render_package = submitter.finalize_submission();
         let render_result = match renderer.lock() {
-            Ok(mut r) => r.render(&render_package, &mut render_scene),
+            Ok(mut r) => r.render(&render_package, &mut render_scene, &material_loader),
             Err(err) => Err(anyhow!("{}", err)),
         };
 

@@ -1,7 +1,7 @@
 use nalgebra_glm::Mat4;
 
 use crate::{
-    material::binding::{BindingType, MaterialBinding},
+    material::binding::{BindingType, MaterialBinding, MaterialBindingRate},
     vulkan_utils::shader::ShaderStage,
 };
 
@@ -18,5 +18,6 @@ pub fn material_bindings() -> [MaterialBinding; 1] {
         set: 0,
         binding_type: BindingType::UniformBuffer,
         shader_stage: ShaderStage::Vertex,
+        binding_rate: MaterialBindingRate::PerFrame,
     }]
 }

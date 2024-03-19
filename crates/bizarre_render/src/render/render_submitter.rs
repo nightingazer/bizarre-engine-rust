@@ -14,7 +14,7 @@ pub struct RenderSubmitter {
     mesh_uploads: Vec<MeshUpload>,
     draw_submissions: Vec<DrawSubmission>,
     clear_color: [f32; 4],
-    ambient_light: Option<AmbientLight>,
+    ambient_color: Vec3,
     directional_lights: Vec<DirectionalLight>,
     view: Mat4,
     projection: Mat4,
@@ -36,7 +36,7 @@ impl RenderSubmitter {
             draw_submissions: Vec::new(),
             clear_color: [0.0, 0.0, 0.0, 1.0],
             directional_lights: Vec::new(),
-            ambient_light: None,
+            ambient_color: [0.3, 0.3, 0.3].into(),
             view: Mat4::identity(),
             projection: Mat4::identity(),
             frame_index: 0,
@@ -56,8 +56,8 @@ impl RenderSubmitter {
         self.clear_color = clear_color;
     }
 
-    pub fn submit_ambient_light(&mut self, ambient_light: AmbientLight) {
-        self.ambient_light = Some(ambient_light);
+    pub fn submit_ambient_light(&mut self, ambient_color: Vec3) {
+        self.ambient_color = ambient_color;
     }
 
     pub fn submit_directional_light(&mut self, directional_light: DirectionalLight) {
@@ -106,6 +106,7 @@ impl RenderSubmitter {
             view: self.view,
             projection: self.projection,
             view_projection: self.projection * self.view,
+            ambient_color: self.ambient_color,
         };
 
         self.draw_submissions.clear();

@@ -14,22 +14,8 @@ layout(input_attachment_index = 1, set = 0, binding = 2) uniform subpassInputMS 
 layout(location = 0) out vec4 f_color;
 
 void main() {
-    vec4 color = (
-        subpassLoad(u_color, 0) +
-        subpassLoad(u_color, 1) +
-        subpassLoad(u_color, 2) +
-        subpassLoad(u_color, 3)
-    ) / 4;
-
-    vec4 normal_and_t = (
-        subpassLoad(u_normal, 0) +
-        subpassLoad(u_normal, 1) +
-        subpassLoad(u_normal, 2) +
-        subpassLoad(u_normal, 3)
-    ) / 4;
-
-    // vec4 color = subpassLoad(u_color);
-    // vec4 normal_and_t = subpassLoad(u_normal);
+    vec4 color = subpassLoad(u_color, gl_SampleID);
+    vec4 normal_and_t = subpassLoad(u_normal, gl_SampleID);
 
     vec3 normal = normal_and_t.xyz;
     float view_tangent = normal_and_t.w;

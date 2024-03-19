@@ -1,11 +1,19 @@
 use std::{
+    fmt::Debug,
     hash::{Hash, Hasher},
     marker::PhantomData,
-    ops::Deref,
 };
 
-#[derive(Clone, Debug)]
 pub struct Handle<T>(pub usize, PhantomData<T>);
+
+impl<T> Debug for Handle<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Handle")
+            .field(&self.0)
+            .field(&self.1)
+            .finish()
+    }
+}
 
 impl<T> Default for Handle<T> {
     fn default() -> Self {
@@ -13,7 +21,13 @@ impl<T> Default for Handle<T> {
     }
 }
 
-impl<T: Clone> Copy for Handle<T> {}
+impl<T> Clone for Handle<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for Handle<T> {}
 
 impl<T> PartialEq for Handle<T> {
     fn eq(&self, other: &Self) -> bool {
@@ -46,15 +60,7 @@ impl<T> Handle<T> {
         Self(id, PhantomData)
     }
 
-    pub fn null() -> Self {
+    pub const fn null() -> Self {
         Self(0, PhantomData)
-    }
-}
-
-impl<T> Deref for Handle<T> {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }

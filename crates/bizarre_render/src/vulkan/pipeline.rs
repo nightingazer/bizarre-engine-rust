@@ -1,24 +1,30 @@
 use core::slice::SlicePattern;
-use std::{ffi::CStr, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ffi::CStr,
+    path::Path,
+};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use ash::vk;
 use bizarre_logger::core_warn;
 
 use crate::{
     material::{
-        binding::MaterialBinding,
-        pass::MaterialPassType,
+        binding::{bindings_into_layouts, MaterialBinding},
         pipeline_features::{PipelineFeatureFlags, PipelineFeatures},
+        MaterialType,
     },
     vulkan_utils::shader::{load_shader, ShaderStage},
 };
+
+use super::device::VulkanDevice;
 
 #[derive(Debug)]
 pub struct VulkanPipeline {
     pub handle: vk::Pipeline,
     pub layout: vk::PipelineLayout,
-    pub set_layout: vk::DescriptorSetLayout,
+    pub set_layouts: Box<[vk::DescriptorSetLayout]>,
 }
 
 #[derive(Debug, Clone)]
@@ -30,7 +36,7 @@ pub struct VulkanPipelineStage {
 #[derive(Debug, Clone)]
 pub struct VulkanPipelineRequirements<'a> {
     pub features: PipelineFeatures,
-    pub pass_type: MaterialPassType,
+    pub material_type: MaterialType,
     pub bindings: &'a [MaterialBinding],
     pub stage_definitions: &'a [VulkanPipelineStage],
     pub attachment_count: usize,
@@ -44,7 +50,7 @@ pub struct VulkanPipelineRequirements<'a> {
 impl VulkanPipeline {
     pub fn from_requirements(
         requirements: &VulkanPipelineRequirements,
-        device: &ash::Device,
+        device: &VulkanDevice,
     ) -> Result<VulkanPipeline> {
         let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
 
@@ -147,21 +153,10 @@ impl VulkanPipeline {
             .logic_op_enable(false)
             .attachments(&color_blend_attachments);
 
-        let set_layout = {
-            let set_bindings = requirements
-                .bindings
-                .iter()
-                .map(vk::DescriptorSetLayoutBinding::from)
-                .collect::<Vec<_>>();
-
-            let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&set_bindings);
-
-            unsafe { device.create_descriptor_set_layout(&create_info, None)? }
-        };
+        let set_layouts = bindings_into_layouts(requirements.bindings, device)?;
 
         let layout = {
-            let layouts = [set_layout];
-            let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&layouts);
+            let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&set_layouts);
             unsafe { device.create_pipeline_layout(&layout_info, None)? }
         };
 
@@ -223,7 +218,7 @@ impl VulkanPipeline {
             .dynamic_state(&dynamic_state_info)
             .layout(layout)
             .render_pass(requirements.render_pass)
-            .subpass(requirements.pass_type as u32)
+            .subpass(requirements.material_type as u32)
             .build();
 
         let pipeline = unsafe {
@@ -241,7 +236,7 @@ impl VulkanPipeline {
         Ok(VulkanPipeline {
             handle: pipeline[0],
             layout,
-            set_layout,
+            set_layouts: set_layouts.into_boxed_slice(),
         })
     }
 
@@ -250,8 +245,10 @@ impl VulkanPipeline {
             device.destroy_pipeline_layout(self.layout, None);
             self.layout = vk::PipelineLayout::null();
 
-            device.destroy_descriptor_set_layout(self.set_layout, None);
-            self.set_layout = vk::DescriptorSetLayout::null();
+            for layout in self.set_layouts.iter_mut() {
+                device.destroy_descriptor_set_layout(*layout, None);
+                *layout = vk::DescriptorSetLayout::null();
+            }
 
             device.destroy_pipeline(self.handle, None);
             self.handle = vk::Pipeline::null();

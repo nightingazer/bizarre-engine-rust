@@ -5,7 +5,7 @@ use specs::{
 };
 
 use crate::{
-    render_components::{MeshComponent, TransformComponent},
+    render_components::{MaterialComponent, MeshComponent, TransformComponent},
     render_package::DrawSubmission,
     render_submitter::RenderSubmitter,
 };
@@ -22,20 +22,26 @@ impl<'a> System<'a> for MeshDrawRequestSystem {
         Write<'a, RenderSubmitter>,
         ReadStorage<'a, MeshComponent>,
         ReadStorage<'a, TransformComponent>,
+        ReadStorage<'a, MaterialComponent>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
-        let (mut submitter, meshes, transforms) = data;
+        let (mut submitter, meshes, transforms, materials) = data;
 
-        let draw_submissions = (&meshes, &transforms)
+        let draw_submissions = (&meshes, &transforms, &materials)
             .join()
-            .map(|(m, t)| DrawSubmission {
+            .map(|(m, t, mat)| DrawSubmission {
                 handle: **m,
                 model_matrix: t.into(),
+                material_instance: mat.0,
             })
             .collect::<Vec<_>>();
 
         submitter.submit_draw(&draw_submissions);
+    }
+
+    fn setup(&mut self, world: &mut specs::prelude::World) {
+        Self::SystemData::setup(world);
     }
 }
 

@@ -9,16 +9,21 @@ use ash::{
     extensions::khr,
     vk::{self, DeviceSize},
 };
+use bizarre_common::handle::Handle;
 use bizarre_logger::{core_debug, core_error};
-use nalgebra_glm::{Mat4, Vec3};
+use nalgebra_glm::Mat4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use thiserror::Error;
 
 use crate::{
     material::{
-        pass::MaterialPassType,
-        pipeline_features::{CullMode, PipelineFeatureFlags, PipelineFeatures, PrimitiveTopology},
+        binding::BindObject,
+        pipeline_features::{
+            CullMode, PipelineFeatureFlags, PipelineFeatures, PolygonMode, PrimitiveTopology,
+        },
+        Material, MaterialInstance, MaterialType,
     },
+    material_loader::{MaterialHandle, MaterialInstanceHandle, MaterialLoader},
     mesh_loader::{self, get_mesh_loader, get_mesh_loader_mut, MeshHandle},
     render_package::{MeshUpload, RenderPackage},
     scene::RenderScene,
@@ -46,27 +51,26 @@ pub struct Renderer {
     pub device: VulkanDevice,
     descriptor_pool: vk::DescriptorPool,
     cmd_pool: vk::CommandPool,
-    max_msaa: vk::SampleCountFlags,
+    pub max_msaa: vk::SampleCountFlags,
 
     surface: vk::SurfaceKHR,
     surface_extent: vk::Extent2D,
     swapchain: VulkanSwapchain,
     viewport: vk::Viewport,
-    render_pass: VulkanRenderPass,
+    pub render_pass: VulkanRenderPass,
     frames: Vec<VulkanFrame>,
-    max_frames_in_flight: usize,
-
-    deferred_pipeline: VulkanPipeline,
-    ambient_pipeline: VulkanPipeline,
-    directional_pipeline: VulkanPipeline,
-    floor_pipeline: VulkanPipeline,
+    pub max_frames_in_flight: usize,
 
     screen_vbo: vk::Buffer,
     screen_vbo_memory: vk::DeviceMemory,
+
+    ambient_pipeline: VulkanPipeline,
+    directional_pipeline: VulkanPipeline,
 }
 
 impl Renderer {
     pub fn new(window: &winit::window::Window) -> Result<Self> {
+        core_debug!("Constructing renderer!");
         let instance = VulkanInstance::new(window)?;
         let surface = unsafe {
             ash_window::create_surface(
@@ -79,7 +83,7 @@ impl Renderer {
         };
         let device = VulkanDevice::new(&instance, surface)?;
 
-        let max_msaa = vk::SampleCountFlags::TYPE_4;
+        let max_msaa = vk::SampleCountFlags::TYPE_2;
 
         let window_extent = vk::Extent2D {
             width: window.inner_size().width,
@@ -102,6 +106,10 @@ impl Renderer {
                     .ty(vk::DescriptorType::INPUT_ATTACHMENT)
                     .descriptor_count(10)
                     .build(),
+                vk::DescriptorPoolSize::builder()
+                    .ty(vk::DescriptorType::STORAGE_BUFFER)
+                    .descriptor_count(10)
+                    .build(),
             ];
             let create_info = vk::DescriptorPoolCreateInfo::builder()
                 .max_sets(512)
@@ -119,106 +127,57 @@ impl Renderer {
             unsafe { device.handle.create_command_pool(&create_info, None)? }
         };
 
-        let deferred_reqs = VulkanPipelineRequirements {
-            attachment_count: 2,
-            bindings: &deferred::material_bindings(),
-            features: PipelineFeatures {
-                culling: CullMode::Back,
-                flags: PipelineFeatureFlags::DEPTH_TEST | PipelineFeatureFlags::DEPTH_WRITE,
-                ..Default::default()
+        let swapchain_image_views = swapchain.image_views.clone();
+
+        let ambient_stages = [
+            VulkanPipelineStage {
+                path: "assets/shaders/ambient.vert".into(),
+                stage: ShaderStage::Vertex,
             },
-            pass_type: MaterialPassType::Geometry,
-            render_pass: render_pass.handle,
-            stage_definitions: &[
-                VulkanPipelineStage {
-                    path: String::from("assets/shaders/deferred.vert"),
-                    stage: ShaderStage::Vertex,
-                },
-                VulkanPipelineStage {
-                    path: String::from("assets/shaders/deferred.frag"),
-                    stage: ShaderStage::Fragment,
-                },
-            ],
-            base_pipeline: None,
-            vertex_attributes: MeshVertex::attribute_description(),
-            vertex_bindings: MeshVertex::binding_description(),
-            sample_count: max_msaa,
-        };
+            VulkanPipelineStage {
+                path: "assets/shaders/ambient.frag".into(),
+                stage: ShaderStage::Fragment,
+            },
+        ];
 
-        let deferred_pipeline = VulkanPipeline::from_requirements(&deferred_reqs, &device)?;
-
-        let ambient_reqs = VulkanPipelineRequirements {
+        let requirements = VulkanPipelineRequirements {
             attachment_count: 1,
+            base_pipeline: None,
             bindings: &ambient::material_bindings(),
             features: PipelineFeatures {
-                flags: PipelineFeatureFlags::BLEND_ADD,
-                primitive_topology: PrimitiveTopology::TriangleFan,
-                ..deferred_reqs.features
-            },
-            pass_type: MaterialPassType::Lighting,
-            stage_definitions: &[
-                VulkanPipelineStage {
-                    path: String::from("assets/shaders/ambient.vert"),
-                    stage: ShaderStage::Vertex,
-                },
-                VulkanPipelineStage {
-                    path: String::from("assets/shaders/ambient.frag"),
-                    stage: ShaderStage::Fragment,
-                },
-            ],
-            base_pipeline: Some(&deferred_pipeline),
-            vertex_attributes: PositionVertex::attribute_description(),
-            vertex_bindings: PositionVertex::binding_description(),
-            ..deferred_reqs
-        };
-
-        let ambient_pipeline = VulkanPipeline::from_requirements(&ambient_reqs, &device)?;
-
-        let directional_reqs = VulkanPipelineRequirements {
-            bindings: &directional::material_bindings(),
-            stage_definitions: &[
-                VulkanPipelineStage {
-                    path: String::from("assets/shaders/directional.vert"),
-                    stage: ShaderStage::Vertex,
-                },
-                VulkanPipelineStage {
-                    path: String::from("assets/shaders/directional.frag"),
-                    stage: ShaderStage::Fragment,
-                },
-            ],
-            base_pipeline: Some(&ambient_pipeline),
-            ..ambient_reqs
-        };
-
-        let directional_pipeline = VulkanPipeline::from_requirements(&directional_reqs, &device)?;
-
-        let floor_req = VulkanPipelineRequirements {
-            bindings: &floor::material_bindings(),
-            pass_type: MaterialPassType::Translucent,
-            features: PipelineFeatures {
                 culling: CullMode::None,
+                flags: PipelineFeatureFlags::BLEND_ADD | PipelineFeatureFlags::DEPTH_TEST,
+                polygon_mode: PolygonMode::Fill,
                 primitive_topology: PrimitiveTopology::TriangleFan,
-                flags: PipelineFeatureFlags::BLEND_COLOR_ALPHA | PipelineFeatureFlags::DEPTH_TEST,
                 ..Default::default()
             },
-            stage_definitions: &[
-                VulkanPipelineStage {
-                    path: String::from("assets/shaders/floor.vert"),
-                    stage: ShaderStage::Vertex,
-                },
-                VulkanPipelineStage {
-                    path: String::from("assets/shaders/floor.frag"),
-                    stage: ShaderStage::Fragment,
-                },
-            ],
-            vertex_attributes: <() as Vertex>::attribute_description(),
-            vertex_bindings: <() as Vertex>::binding_description(),
-            ..directional_reqs
+            material_type: MaterialType::Lighting,
+            render_pass: render_pass.handle,
+            sample_count: max_msaa,
+            stage_definitions: &ambient_stages,
+            vertex_attributes: PositionVertex::attribute_description(),
+            vertex_bindings: PositionVertex::binding_description(),
         };
 
-        let floor_pipeline = VulkanPipeline::from_requirements(&floor_req, &device)?;
+        let ambient_pipeline = VulkanPipeline::from_requirements(&requirements, &device)?;
 
-        let swapchain_image_views = swapchain.image_views.clone();
+        let directional_stages = [
+            VulkanPipelineStage {
+                path: "assets/shaders/directional.vert".into(),
+                stage: ShaderStage::Vertex,
+            },
+            VulkanPipelineStage {
+                path: "assets/shaders/directional.frag".into(),
+                stage: ShaderStage::Fragment,
+            },
+        ];
+
+        let requirements = VulkanPipelineRequirements {
+            stage_definitions: &directional_stages,
+            ..requirements
+        };
+
+        let directional_pipeline = VulkanPipeline::from_requirements(&requirements, &device)?;
 
         let frames = swapchain_image_views
             .iter()
@@ -230,12 +189,10 @@ impl Renderer {
                         image_index: i as u32,
                         render_pass: render_pass.handle,
                         cmd_pool,
-                        deferred_set_layout: deferred_pipeline.set_layout,
-                        descriptor_pool,
-                        ambient_set_layout: ambient_pipeline.set_layout,
-                        directional_set_layout: directional_pipeline.set_layout,
-                        floor_set_layout: floor_pipeline.set_layout,
                         samples: max_msaa,
+                        descriptor_pool,
+                        ambient_set_layout: ambient_pipeline.set_layouts[0],
+                        directional_set_layout: directional_pipeline.set_layouts[0],
                     },
                     &device,
                 )
@@ -292,12 +249,10 @@ impl Renderer {
             frames,
             max_frames_in_flight,
             surface_extent: window_extent,
-            deferred_pipeline,
-            ambient_pipeline,
-            directional_pipeline,
-            floor_pipeline,
             screen_vbo,
             screen_vbo_memory,
+            ambient_pipeline,
+            directional_pipeline,
         };
 
         Ok(system)
@@ -307,14 +262,14 @@ impl Renderer {
         &mut self,
         render_package: &RenderPackage,
         render_scene: &mut RenderScene,
+        material_loader: &MaterialLoader,
     ) -> Result<()> {
         self.prepare_scene(render_package, render_scene)?;
         let (present_index, mut suboptimal) =
-            match self.render_to_image(render_package, render_scene) {
+            match self.render_to_image(render_package, render_scene, material_loader) {
                 Ok((present_index, suboptimal)) => (present_index, suboptimal),
                 Err(err) => match err.downcast_ref::<RenderException>() {
                     Some(RenderException::RenderSkippedOutOfDate) => return Ok(()),
-                    Some(_) => return Err(err),
                     None => return Err(err),
                 },
             };
@@ -352,6 +307,7 @@ impl Renderer {
         &mut self,
         render_package: &RenderPackage,
         render_scene: &RenderScene,
+        material_loader: &MaterialLoader,
     ) -> Result<(usize, bool)> {
         let mut render_suboptimal = false;
         let image_available_semaphore = unsafe {
@@ -442,50 +398,61 @@ impl Renderer {
             .render_area(self.surface_extent.into())
             .build();
 
-        let (unique_handles, intance_counts, model_matrices) = {
-            let mut sorted_draws = render_package.draw_submissions.clone();
-            sorted_draws.sort_by(|a, b| a.handle.cmp(&b.handle));
+        struct UniqueDraw {
+            mesh: MeshHandle,
+            material_instance: MaterialInstanceHandle,
+            instance_count: u32,
+        }
 
-            sorted_draws.iter().fold(
-                (
-                    Vec::<MeshHandle>::new(),
-                    Vec::<u32>::new(),
-                    Vec::<Mat4>::new(),
-                ),
-                |mut data, draw| {
-                    if data.0.is_empty() || data.0.last().unwrap() != &draw.handle {
-                        data.0.push(draw.handle);
-                        data.1.push(1);
-                    } else {
-                        *data.1.last_mut().unwrap() += 1;
-                    }
-                    data.2.push(draw.model_matrix);
-                    data
-                },
-            )
+        let (unique_draws, model_matrices) = {
+            let draws = render_package.draw_submissions.clone();
+
+            draws
+                .chunk_by(|a, b| a.handle == b.handle && a.material_instance == b.material_instance)
+                .map(|chunk| {
+                    chunk.iter().fold(
+                        (
+                            UniqueDraw {
+                                mesh: MeshHandle::null(),
+                                material_instance: MaterialInstanceHandle::null(),
+                                instance_count: 0,
+                            },
+                            Vec::new(),
+                        ),
+                        |mut acc, curr| {
+                            if acc.0.mesh == Handle::null() {
+                                acc.0.mesh = curr.handle;
+                            }
+                            if acc.0.material_instance == Handle::null() {
+                                acc.0.material_instance = curr.material_instance;
+                            }
+                            acc.0.instance_count += 1;
+                            acc.1.push(curr.model_matrix);
+                            acc
+                        },
+                    )
+                })
+                .fold((Vec::new(), Vec::new()), |mut acc, curr| {
+                    acc.0.push(curr.0);
+                    acc.1.extend_from_slice(&curr.1);
+                    acc
+                })
         };
 
-        unsafe {
-            let ubo = self
-                .device
-                .map_memory(
-                    self.frames[present_index].deferred_ubo_memory,
-                    0,
-                    size_of::<deferred::Ubo>() as u64,
-                    vk::MemoryMapFlags::empty(),
-                )?
-                .cast::<deferred::Ubo>()
-                .as_mut()
-                .unwrap();
+        let transforms = model_matrices
+            .iter()
+            .map(|t| deferred::Transform::from(*t))
+            .collect::<Vec<_>>();
 
-            ubo.view_projection = render_package.view_projection;
-            let dst_ptr = ubo.model.as_mut_ptr();
-            let src_ptr = model_matrices.as_slice().as_ptr();
-
-            std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, model_matrices.len());
-
-            self.device
-                .unmap_memory(self.frames[present_index].deferred_ubo_memory)
+        render_scene.upload_transforms(&transforms, present_index, &self.device)?;
+        {
+            let mut a = self.frames[present_index]
+                .view_projection
+                .map_memory(&self.device)?;
+            a.view_projection = render_package.view_projection;
+            self.frames[present_index]
+                .view_projection
+                .unmap_memory(a, &self.device);
         }
 
         unsafe {
@@ -519,19 +486,12 @@ impl Renderer {
                 .cmd_set_viewport(frame.render_cmd, 0, &viewports);
             self.device.cmd_set_scissor(frame.render_cmd, 0, &scissors);
 
-            self.device.cmd_bind_pipeline(
-                frame.render_cmd,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.deferred_pipeline.handle,
-            );
-
             self.device.cmd_bind_vertex_buffers(
                 frame.render_cmd,
                 0,
                 &[render_scene.vbo.buffer],
                 &[0],
             );
-
             self.device.cmd_bind_index_buffer(
                 frame.render_cmd,
                 render_scene.ibo.buffer,
@@ -539,34 +499,66 @@ impl Renderer {
                 vk::IndexType::UINT32,
             );
 
-            self.device.cmd_bind_descriptor_sets(
-                frame.render_cmd,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.deferred_pipeline.layout,
-                0,
-                &[frame.deferred_set],
-                &[],
-            );
-
             let mut current_instance = 0;
-            for (handle, count) in unique_handles.iter().zip(intance_counts.iter()) {
-                match render_scene.mesh_ranges.get(handle) {
+            let mut last_bound_pipeline_id = vk::Pipeline::null();
+            let mut last_bound_material_instance = MaterialInstanceHandle::null();
+            for draw in unique_draws {
+                if last_bound_material_instance != draw.material_instance {
+                    let mut material_instance =
+                        material_loader.get_instance_mut(draw.material_instance);
+                    let pipeline_handle = material_instance.material.pipeline.handle;
+                    if pipeline_handle != last_bound_pipeline_id {
+                        material_instance.bind_pipeline(frame.render_cmd, &self.device);
+                        last_bound_pipeline_id = pipeline_handle;
+                    }
+                    material_instance.bind_to_frame(
+                        0,
+                        1,
+                        present_index,
+                        BindObject::StorageBuffer(Some(
+                            render_scene.transforms[present_index].buffer,
+                        )),
+                    );
+                    material_instance.bind_to_frame(
+                        0,
+                        0,
+                        present_index,
+                        BindObject::UniformBuffer(Some(frame.view_projection.buffer)),
+                    );
+                    material_instance.update_descriptor_sets(present_index, &self.device);
+                    material_instance.bind_descriptors(
+                        present_index,
+                        frame.render_cmd,
+                        &self.device,
+                    );
+                    last_bound_material_instance = draw.material_instance;
+                }
+
+                match render_scene.mesh_ranges.get(&draw.mesh) {
                     Some(mesh_range) => self.device.cmd_draw_indexed(
                         frame.render_cmd,
                         mesh_range.ibo_count,
-                        *count,
+                        draw.instance_count,
                         mesh_range.ibo_offset,
                         mesh_range.vbo_offset,
                         current_instance,
                     ),
-                    _ => panic!("Failed to get range for mesh {:?}", handle),
+                    _ => panic!("Failed to get range for mesh {:?}", draw.mesh),
                 };
 
-                current_instance += *count;
+                current_instance += draw.instance_count;
             }
 
             self.device
                 .cmd_next_subpass(frame.render_cmd, vk::SubpassContents::INLINE);
+
+            // Lighting
+
+            {
+                let mut ambient_ubo = frame.ambient_ubo.map_memory(&self.device)?;
+                ambient_ubo.color = render_package.ambient_color.into();
+                frame.ambient_ubo.unmap_memory(ambient_ubo, &self.device);
+            }
 
             self.device.cmd_bind_pipeline(
                 frame.render_cmd,
@@ -588,61 +580,10 @@ impl Renderer {
 
             self.device.cmd_draw(frame.render_cmd, 4, 1, 0, 0);
 
-            self.device.cmd_bind_pipeline(
-                frame.render_cmd,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.directional_pipeline.handle,
-            );
-
-            self.device.cmd_bind_descriptor_sets(
-                frame.render_cmd,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.directional_pipeline.layout,
-                0,
-                &[frame.directional_set],
-                &[],
-            );
-
-            self.device.cmd_draw(frame.render_cmd, 4, 1, 0, 0);
-
             self.device
                 .cmd_next_subpass(frame.render_cmd, vk::SubpassContents::INLINE);
 
-            self.device.cmd_bind_pipeline(
-                frame.render_cmd,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.floor_pipeline.handle,
-            );
-
-            {
-                let ubo = self
-                    .device
-                    .map_memory(
-                        frame.floor_ubo_memory,
-                        0,
-                        size_of::<floor::Ubo>() as u64,
-                        vk::MemoryMapFlags::empty(),
-                    )?
-                    .cast::<floor::Ubo>()
-                    .as_mut()
-                    .unwrap();
-
-                ubo.projection = render_package.projection;
-                ubo.view = render_package.view;
-
-                self.device.unmap_memory(frame.floor_ubo_memory);
-            }
-
-            self.device.cmd_bind_descriptor_sets(
-                frame.render_cmd,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.floor_pipeline.layout,
-                0,
-                &[frame.floor_set],
-                &[],
-            );
-
-            self.device.cmd_draw(frame.render_cmd, 4, 1, 0, 0);
+            // Translucent
 
             self.device.cmd_end_render_pass(frame.render_cmd);
 
@@ -672,7 +613,11 @@ impl Renderer {
 
             self.blit_image(
                 self.frames[present_index].render_cmd,
-                self.frames[present_index].resolve_image.image,
+                if self.max_msaa != vk::SampleCountFlags::TYPE_1 {
+                    self.frames[present_index].resolve_image.image
+                } else {
+                    self.frames[present_index].output_image.image
+                },
                 self.swapchain.images[present_index],
             );
 
@@ -822,6 +767,19 @@ impl Renderer {
         };
     }
 
+    pub fn create_material(&self, requirements: &VulkanPipelineRequirements) -> Result<Material> {
+        Material::new(requirements, &self.device)
+    }
+
+    pub fn create_material_instance(&self, material: Arc<Material>) -> Result<MaterialInstance> {
+        MaterialInstance::new(
+            material,
+            self.descriptor_pool,
+            self.max_frames_in_flight,
+            &self.device,
+        )
+    }
+
     fn recreate_swapchain(&mut self) -> Result<()> {
         unsafe {
             self.device.device_wait_idle()?;
@@ -854,11 +812,6 @@ impl Renderer {
             self.device.destroy_command_pool(self.cmd_pool, None);
             self.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
-
-            self.ambient_pipeline.destroy(&self.device);
-            self.deferred_pipeline.destroy(&self.device);
-            self.directional_pipeline.destroy(&self.device);
-            self.floor_pipeline.destroy(&self.device);
 
             self.render_pass.destroy(&self.device);
 

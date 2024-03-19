@@ -14,6 +14,7 @@ use bizarre_core::{
 };
 use bizarre_logger::core_debug;
 use bizarre_render::{
+    material_loader::MaterialLoader,
     render_components::{MeshComponent, WindowComponent},
     render_math::DirectionalLight,
     render_submitter::RenderSubmitter,
@@ -46,12 +47,13 @@ impl Layer for VisualLayer {
             .build(&event_loop)?;
 
         let renderer = Renderer::new(&window)?;
-        let render_scene = RenderScene::new(&renderer.device)?;
+        let render_scene = RenderScene::new(renderer.max_frames_in_flight, &renderer.device)?;
 
         let event_loop = WinitEventLoopResource(Arc::new(Mutex::new(event_loop)));
 
         app_builder.world.insert(event_loop);
         app_builder.world.insert(RendererResource::new(renderer));
+        app_builder.world.insert(MaterialLoader::default());
         app_builder.world.insert(render_scene);
 
         app_builder.world.register::<WindowComponent>();

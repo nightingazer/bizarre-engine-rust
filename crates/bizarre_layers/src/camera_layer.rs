@@ -130,6 +130,7 @@ impl<'a> System<'a> for CameraSystem {
     }
 
     fn setup(&mut self, world: &mut specs::prelude::World) {
+        world.setup::<Self::SystemData>();
         self.reader_id = Some(
             world
                 .fetch_mut::<EventChannel<WindowResized>>()

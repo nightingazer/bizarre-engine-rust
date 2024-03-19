@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, mem::size_of};
 
 use anyhow::Result;
 use ash::vk;
-use bizarre_logger::core_debug;
+use bizarre_logger::{core_debug, core_warn};
+use nalgebra_glm::Mat4;
 
 use crate::{
     mesh::Mesh,
@@ -12,10 +13,12 @@ use crate::{
         buffer::{VulkanBuffer, VulkanSliceBuffer},
         device::VulkanDevice,
     },
+    vulkan_shaders::deferred,
 };
 
 const MAX_VERTICES: usize = 1_000_000;
 const MAX_INDICES: usize = 3_500_000;
+const MAX_TRANSFORMS: usize = 10_000;
 
 #[derive(Default)]
 pub struct MeshRange {
@@ -28,6 +31,7 @@ pub struct MeshRange {
 pub struct RenderScene {
     pub vbo: VulkanSliceBuffer<MeshVertex>,
     pub ibo: VulkanSliceBuffer<u32>,
+    pub transforms: Box<[VulkanSliceBuffer<deferred::Transform>]>,
 
     pub mesh_ranges: HashMap<MeshHandle, MeshRange>,
     pub vbo_offset: i32,
@@ -35,7 +39,7 @@ pub struct RenderScene {
 }
 
 impl RenderScene {
-    pub fn new(device: &VulkanDevice) -> Result<Self> {
+    pub fn new(max_frames_in_flight: usize, device: &VulkanDevice) -> Result<Self> {
         let vbo = VulkanSliceBuffer::new(
             MAX_VERTICES,
             vk::BufferUsageFlags::VERTEX_BUFFER,
@@ -43,18 +47,25 @@ impl RenderScene {
             device,
         )?;
 
-        let a = vbo.map_range(.., device)?;
-        vbo.unmap_memory(a, device);
-
         let ibo = VulkanSliceBuffer::new(
-            MAX_VERTICES,
+            MAX_INDICES,
             vk::BufferUsageFlags::INDEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             device,
         )?;
 
-        let a = ibo.map_range(.., device)?;
-        ibo.unmap_memory(a, device);
+        let mut transforms = Vec::with_capacity(max_frames_in_flight);
+
+        for _ in 0..max_frames_in_flight {
+            transforms.push(VulkanSliceBuffer::new(
+                MAX_TRANSFORMS,
+                vk::BufferUsageFlags::STORAGE_BUFFER,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+                device,
+            )?);
+        }
+
+        let transforms = transforms.into_boxed_slice();
 
         Ok(Self {
             vbo,
@@ -62,6 +73,7 @@ impl RenderScene {
             mesh_ranges: HashMap::default(),
             vbo_offset: 0,
             ibo_offset: 0,
+            transforms,
         })
     }
 
@@ -85,8 +97,8 @@ impl RenderScene {
         let mut vbo_data = Vec::with_capacity(vbo_len);
         let mut ibo_data = Vec::with_capacity(ibo_len);
 
-        let mut vbo_tmp_offset = self.vbo_offset as i32;
-        let mut ibo_tmp_offset = self.ibo_offset as u32;
+        let mut vbo_tmp_offset = self.vbo_offset;
+        let mut ibo_tmp_offset = self.ibo_offset;
 
         for mesh in meshes.iter().cloned() {
             let range = MeshRange {
@@ -117,6 +129,30 @@ impl RenderScene {
         self.vbo_offset = vbo_tmp_offset;
         self.ibo_offset = ibo_tmp_offset;
 
+        Ok(())
+    }
+
+    pub fn upload_transforms(
+        &self,
+        transforms: &[deferred::Transform],
+        present_index: usize,
+        device: &VulkanDevice,
+    ) -> Result<()> {
+        // TODO: fix the VulkanBuffer::map_range()
+        unsafe {
+            let mapped = device
+                .map_memory(
+                    self.transforms[present_index].memory,
+                    0,
+                    std::mem::size_of_val(transforms) as u64,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast::<deferred::Transform>();
+
+            let mapped = std::slice::from_raw_parts_mut(mapped, transforms.len());
+            mapped.copy_from_slice(transforms);
+            device.unmap_memory(self.transforms[present_index].memory);
+        }
         Ok(())
     }
 }
