@@ -1,8 +1,4 @@
-use std::{
-    mem::size_of,
-    ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
-};
+use std::{mem::size_of, sync::Arc};
 
 use anyhow::{anyhow, bail, Result};
 use ash::{
@@ -11,7 +7,6 @@ use ash::{
 };
 use bizarre_common::handle::Handle;
 use bizarre_logger::{core_debug, core_error};
-use nalgebra_glm::Mat4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use thiserror::Error;
 
@@ -23,11 +18,11 @@ use crate::{
         },
         Material, MaterialInstance, MaterialType,
     },
-    material_loader::{MaterialHandle, MaterialInstanceHandle, MaterialLoader},
-    mesh_loader::{self, get_mesh_loader, get_mesh_loader_mut, MeshHandle},
-    render_package::{MeshUpload, RenderPackage},
+    material_loader::{MaterialInstanceHandle, MaterialLoader},
+    mesh_loader::{get_mesh_loader, MeshHandle},
+    render_package::RenderPackage,
     scene::RenderScene,
-    vertex::{MeshVertex, PositionVertex, Vertex},
+    vertex::{PositionVertex, Vertex},
     vulkan::{
         device::VulkanDevice,
         frame::{VulkanFrame, VulkanFrameInfo},
@@ -36,7 +31,10 @@ use crate::{
         render_pass::VulkanRenderPass,
         swapchain::VulkanSwapchain,
     },
-    vulkan_shaders::{ambient, deferred, directional, floor},
+    vulkan_shaders::{
+        geometry_pass,
+        lighting_pass::{self, DirectionalLightsSSBO},
+    },
     vulkan_utils::{buffer::create_buffer, shader::ShaderStage},
 };
 
@@ -143,7 +141,7 @@ impl Renderer {
         let requirements = VulkanPipelineRequirements {
             attachment_count: 1,
             base_pipeline: None,
-            bindings: &ambient::material_bindings(),
+            bindings: &lighting_pass::ambient_material_bindings(),
             features: PipelineFeatures {
                 culling: CullMode::None,
                 flags: PipelineFeatureFlags::BLEND_ADD | PipelineFeatureFlags::DEPTH_TEST,
@@ -174,6 +172,7 @@ impl Renderer {
 
         let requirements = VulkanPipelineRequirements {
             stage_definitions: &directional_stages,
+            bindings: &lighting_pass::directional_material_bindings(),
             ..requirements
         };
 
@@ -264,15 +263,17 @@ impl Renderer {
         render_scene: &mut RenderScene,
         material_loader: &MaterialLoader,
     ) -> Result<()> {
-        self.prepare_scene(render_package, render_scene)?;
-        let (present_index, mut suboptimal) =
-            match self.render_to_image(render_package, render_scene, material_loader) {
-                Ok((present_index, suboptimal)) => (present_index, suboptimal),
-                Err(err) => match err.downcast_ref::<RenderException>() {
-                    Some(RenderException::RenderSkippedOutOfDate) => return Ok(()),
-                    None => return Err(err),
-                },
-            };
+        let (present_index, mut suboptimal) = match self.acquire_image() {
+            Ok((present_index, suboptimal)) => (present_index, suboptimal),
+            Err(err) => match err.downcast_ref::<RenderException>() {
+                Some(RenderException::RenderSkippedOutOfDate) => return Ok(()),
+                None => return Err(err),
+            },
+        };
+
+        self.prepare_scene(present_index, render_package, render_scene)?;
+        self.render_to_image(present_index, render_package, render_scene, material_loader);
+
         suboptimal |= match self.present_image(present_index) {
             Ok(suboptimal) => suboptimal,
             Err(err) => return Err(err),
@@ -285,30 +286,7 @@ impl Renderer {
         }
     }
 
-    fn prepare_scene(
-        &mut self,
-        render_package: &RenderPackage,
-        render_scene: &mut RenderScene,
-    ) -> Result<()> {
-        if !render_package.mesh_uploads.is_empty() {
-            let mesh_loader = get_mesh_loader();
-            let meshes = render_package
-                .mesh_uploads
-                .iter()
-                .filter_map(|mu| mesh_loader.get(mu.mesh))
-                .collect::<Vec<_>>();
-            render_scene.upload_meshes(&meshes, &self.device)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn render_to_image(
-        &mut self,
-        render_package: &RenderPackage,
-        render_scene: &RenderScene,
-        material_loader: &MaterialLoader,
-    ) -> Result<(usize, bool)> {
+    fn acquire_image(&mut self) -> Result<(usize, bool)> {
         let mut render_suboptimal = false;
         let image_available_semaphore = unsafe {
             let create_info = vk::SemaphoreCreateInfo::default();
@@ -363,6 +341,43 @@ impl Renderer {
 
         self.frames[present_index].image_available_semaphore = image_available_semaphore;
 
+        Ok((present_index, render_suboptimal))
+    }
+
+    fn prepare_scene(
+        &mut self,
+        present_index: usize,
+        render_package: &RenderPackage,
+        render_scene: &mut RenderScene,
+    ) -> Result<()> {
+        if !render_package.mesh_uploads.is_empty() {
+            let mesh_loader = get_mesh_loader();
+            let meshes = render_package
+                .mesh_uploads
+                .iter()
+                .filter_map(|mu| mesh_loader.get(mu.mesh))
+                .collect::<Vec<_>>();
+            render_scene.upload_meshes(&meshes, &self.device)?;
+        }
+        if !render_package.directional_lights.is_empty() {
+            let lights = render_package
+                .directional_lights
+                .iter()
+                .map(DirectionalLightsSSBO::from)
+                .collect::<Vec<_>>();
+
+            render_scene.upload_directional_lights(&lights, present_index, &self.device)?;
+        }
+        Ok(())
+    }
+
+    fn render_to_image(
+        &mut self,
+        present_index: usize,
+        render_package: &RenderPackage,
+        render_scene: &RenderScene,
+        material_loader: &MaterialLoader,
+    ) -> Result<()> {
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
@@ -441,7 +456,7 @@ impl Renderer {
 
         let transforms = model_matrices
             .iter()
-            .map(|t| deferred::Transform::from(*t))
+            .map(|t| geometry_pass::TransformSSBO::from(*t))
             .collect::<Vec<_>>();
 
         render_scene.upload_transforms(&transforms, present_index, &self.device)?;
@@ -556,7 +571,7 @@ impl Renderer {
 
             {
                 let mut ambient_ubo = frame.ambient_ubo.map_memory(&self.device)?;
-                ambient_ubo.color = render_package.ambient_color.into();
+                ambient_ubo.ambient_color = render_package.ambient_color;
                 frame.ambient_ubo.unmap_memory(ambient_ubo, &self.device);
             }
 
@@ -579,6 +594,46 @@ impl Renderer {
                 .cmd_bind_vertex_buffers(frame.render_cmd, 0, &[self.screen_vbo], &[0]);
 
             self.device.cmd_draw(frame.render_cmd, 4, 1, 0, 0);
+
+            self.device.cmd_bind_pipeline(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.directional_pipeline.handle,
+            );
+
+            {
+                let lights_ssbo = [vk::DescriptorBufferInfo::builder()
+                    .buffer(render_scene.directional_lights[present_index].buffer)
+                    .range(vk::WHOLE_SIZE)
+                    .build()];
+
+                self.device.update_descriptor_sets(
+                    &[vk::WriteDescriptorSet::builder()
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                        .dst_set(frame.directional_set)
+                        .dst_binding(1)
+                        .buffer_info(&lights_ssbo)
+                        .build()],
+                    &[],
+                );
+            }
+
+            self.device.cmd_bind_descriptor_sets(
+                frame.render_cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.directional_pipeline.layout,
+                0,
+                &[frame.directional_set],
+                &[],
+            );
+
+            self.device.cmd_draw(
+                frame.render_cmd,
+                4,
+                render_package.directional_lights.len() as u32,
+                0,
+                0,
+            );
 
             self.device
                 .cmd_next_subpass(frame.render_cmd, vk::SubpassContents::INLINE);
@@ -665,7 +720,7 @@ impl Renderer {
             )?;
         }
 
-        Ok((present_index, render_suboptimal))
+        Ok(())
     }
 
     /// Present image to swapchain,

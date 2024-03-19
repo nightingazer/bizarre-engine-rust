@@ -101,6 +101,7 @@ impl RenderSubmitter {
             mesh_uploads: self.mesh_uploads.clone(),
             mesh_deletes: Vec::new(),
             draw_submissions: self.draw_submissions.clone(),
+            directional_lights: self.directional_lights.clone(),
             avg_frame_time_ms: avg_frame_time,
             last_frame_time_ms: last_frame_time,
             view: self.view,
@@ -110,6 +111,7 @@ impl RenderSubmitter {
         };
 
         self.draw_submissions.clear();
+        self.directional_lights.clear();
         self.mesh_uploads.clear();
         self.frame_index = (self.frame_index + 1) % self.frame_times_ms.len();
 

@@ -9,7 +9,7 @@ use bizarre_engine::{
         specs::{Builder, WorldExt},
     },
     render::{
-        material::builtin_materials::default_lighted,
+        material::builtin_materials::default_plain,
         material_loader::{self, MaterialLoader},
         mesh_loader::get_mesh_loader_mut,
         render_components::{MaterialComponent, MeshComponent, TransformComponent},
@@ -74,7 +74,7 @@ impl<'a> System<'a> for SandboxSetupSystem {
         let default_material_instance = {
             let renderer = renderer.lock().unwrap();
 
-            let default_material = default_lighted(
+            let default_material = default_plain(
                 renderer.max_msaa,
                 renderer.render_pass.handle,
                 &renderer.device,
@@ -146,11 +146,41 @@ impl<'a> System<'a> for SandboxSetupSystem {
             .build_entity()
             .with(
                 DirectionalLight {
-                    color: [1.0, 0.8, 0.6],
-                    position: [7.5, 10.0, 10.0],
+                    direction: [7.5, 10.0, 10.0].into(),
+                    color: [0.8, 0.6, 0.3].into(),
                 },
                 &mut light_storage,
             )
             .build();
+        // entities
+        //     .build_entity()
+        //     .with(
+        //         DirectionalLight {
+        //             color: [1.0, 0.0, 0.0].into(),
+        //             direction: [1.0, 0.0, 0.0].into(),
+        //         },
+        //         &mut light_storage,
+        //     )
+        //     .build();
+        // entities
+        //     .build_entity()
+        //     .with(
+        //         DirectionalLight {
+        //             color: [0.0, 1.0, 0.0].into(),
+        //             direction: [0.0, 1.0, 0.0].into(),
+        //         },
+        //         &mut light_storage,
+        //     )
+        //     .build();
+        // entities
+        //     .build_entity()
+        //     .with(
+        //         DirectionalLight {
+        //             color: [0.0, 0.0, 1.0].into(),
+        //             direction: [0.0, 0.0, 1.0].into(),
+        //         },
+        //         &mut light_storage,
+        //     )
+        //     .build();
     }
 }

@@ -3,7 +3,7 @@ use ash::vk;
 use nalgebra_glm::Mat4;
 
 use crate::{
-    vulkan_shaders::{ambient, deferred, directional},
+    vulkan_shaders::{geometry_pass, lighting_pass},
     vulkan_utils::framebuffer::create_framebuffer,
 };
 
@@ -26,11 +26,10 @@ pub struct VulkanFrame {
     pub resolve_image: VulkanImage,
 
     // TODO: move that out of frame eventually
-    pub view_projection: VulkanBuffer<deferred::Ubo>,
+    pub view_projection: VulkanBuffer<geometry_pass::Ubo>,
     pub directional_set: vk::DescriptorSet,
     pub ambient_set: vk::DescriptorSet,
-    pub directional_ubo: VulkanBuffer<directional::Ubo>,
-    pub ambient_ubo: VulkanBuffer<ambient::Ubo>,
+    pub ambient_ubo: VulkanBuffer<lighting_pass::AmbientUbo>,
 }
 
 pub struct VulkanFrameInfo {
@@ -108,7 +107,7 @@ impl VulkanFrame {
             device,
         )?;
 
-        let directional_ubo = VulkanBuffer::new(
+        let view_projection = VulkanBuffer::new(
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
             device,
@@ -125,7 +124,7 @@ impl VulkanFrame {
             .build()];
 
         let directional_ubo_info = [vk::DescriptorBufferInfo::builder()
-            .buffer(directional_ubo.buffer)
+            .buffer(view_projection.buffer)
             .range(vk::WHOLE_SIZE)
             .build()];
 
@@ -163,21 +162,15 @@ impl VulkanFrame {
                 .dst_set(directional_set)
                 .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
                 .image_info(&color_info)
-                .dst_binding(1)
+                .dst_binding(2)
                 .build(),
             vk::WriteDescriptorSet::builder()
                 .dst_set(directional_set)
                 .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
                 .image_info(&normals_info)
-                .dst_binding(2)
+                .dst_binding(3)
                 .build(),
         ];
-
-        let view_projection = VulkanBuffer::new(
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-            device,
-        )?;
 
         unsafe {
             device.update_descriptor_sets(&set_writes, &[]);
@@ -200,7 +193,6 @@ impl VulkanFrame {
             ambient_set,
             ambient_ubo,
             directional_set,
-            directional_ubo,
             view_projection,
         };
 
@@ -245,7 +237,51 @@ impl VulkanFrame {
         self.normals_image = normal;
         self.resolve_image = resolve;
 
+        self.update_sets(device);
+
         Ok(())
+    }
+
+    fn update_sets(&self, device: &VulkanDevice) {
+        let colors_input_info = [vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(self.color_image.view)
+            .build()];
+        let normals_input_info = [vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(self.normals_image.view)
+            .build()];
+
+        let writes = [
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.ambient_set)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .dst_binding(1)
+                .image_info(&colors_input_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.ambient_set)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .dst_binding(2)
+                .image_info(&normals_input_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.directional_set)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .dst_binding(2)
+                .image_info(&colors_input_info)
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.directional_set)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .dst_binding(3)
+                .image_info(&normals_input_info)
+                .build(),
+        ];
+
+        unsafe {
+            device.update_descriptor_sets(&writes, &[]);
+        }
     }
 
     pub fn destroy(&mut self, cmd_pool: vk::CommandPool, device: &ash::Device) {

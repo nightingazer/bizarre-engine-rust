@@ -15,6 +15,7 @@ use crate::{
         pipeline_features::{PipelineFeatureFlags, PipelineFeatures},
         MaterialType,
     },
+    vulkan_shaders::geometry_pass,
     vulkan_utils::shader::{load_shader, ShaderStage},
 };
 
@@ -61,8 +62,8 @@ impl VulkanPipeline {
         let vertex_input_attributes = requirements.vertex_attributes.as_slice();
 
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::builder()
-            .vertex_binding_descriptions(&vertex_binding_descriptions)
-            .vertex_attribute_descriptions(&vertex_input_attributes);
+            .vertex_binding_descriptions(vertex_binding_descriptions)
+            .vertex_attribute_descriptions(vertex_input_attributes);
 
         let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
             .topology(requirements.features.primitive_topology.into())
@@ -153,7 +154,14 @@ impl VulkanPipeline {
             .logic_op_enable(false)
             .attachments(&color_blend_attachments);
 
-        let set_layouts = bindings_into_layouts(requirements.bindings, device)?;
+        let bindings = match requirements.material_type {
+            MaterialType::Opaque => {
+                [&geometry_pass::material_bindings(), requirements.bindings].concat()
+            }
+            _ => requirements.bindings.to_vec(),
+        };
+
+        let set_layouts = bindings_into_layouts(&bindings, device)?;
 
         let layout = {
             let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&set_layouts);

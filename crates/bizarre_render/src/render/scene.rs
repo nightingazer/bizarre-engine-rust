@@ -1,24 +1,21 @@
-use std::{collections::HashMap, mem::size_of};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use ash::vk;
-use bizarre_logger::{core_debug, core_warn};
-use nalgebra_glm::Mat4;
+use bizarre_logger::core_debug;
 
 use crate::{
     mesh::Mesh,
     mesh_loader::MeshHandle,
     vertex::MeshVertex,
-    vulkan::{
-        buffer::{VulkanBuffer, VulkanSliceBuffer},
-        device::VulkanDevice,
-    },
-    vulkan_shaders::deferred,
+    vulkan::{buffer::VulkanSliceBuffer, device::VulkanDevice},
+    vulkan_shaders::{geometry_pass, lighting_pass},
 };
 
 const MAX_VERTICES: usize = 1_000_000;
 const MAX_INDICES: usize = 3_500_000;
 const MAX_TRANSFORMS: usize = 10_000;
+const MAX_DIRECTIONAL_LIGHTS: usize = 100;
 
 #[derive(Default)]
 pub struct MeshRange {
@@ -31,7 +28,8 @@ pub struct MeshRange {
 pub struct RenderScene {
     pub vbo: VulkanSliceBuffer<MeshVertex>,
     pub ibo: VulkanSliceBuffer<u32>,
-    pub transforms: Box<[VulkanSliceBuffer<deferred::Transform>]>,
+    pub transforms: Box<[VulkanSliceBuffer<geometry_pass::TransformSSBO>]>,
+    pub directional_lights: Box<[VulkanSliceBuffer<lighting_pass::DirectionalLightsSSBO>]>,
 
     pub mesh_ranges: HashMap<MeshHandle, MeshRange>,
     pub vbo_offset: i32,
@@ -55,6 +53,7 @@ impl RenderScene {
         )?;
 
         let mut transforms = Vec::with_capacity(max_frames_in_flight);
+        let mut directional_lights = Vec::with_capacity(max_frames_in_flight);
 
         for _ in 0..max_frames_in_flight {
             transforms.push(VulkanSliceBuffer::new(
@@ -63,9 +62,16 @@ impl RenderScene {
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
                 device,
             )?);
+            directional_lights.push(VulkanSliceBuffer::new(
+                MAX_DIRECTIONAL_LIGHTS,
+                vk::BufferUsageFlags::STORAGE_BUFFER,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+                device,
+            )?);
         }
 
         let transforms = transforms.into_boxed_slice();
+        let directional_lights = directional_lights.into_boxed_slice();
 
         Ok(Self {
             vbo,
@@ -74,6 +80,7 @@ impl RenderScene {
             vbo_offset: 0,
             ibo_offset: 0,
             transforms,
+            directional_lights,
         })
     }
 
@@ -134,7 +141,7 @@ impl RenderScene {
 
     pub fn upload_transforms(
         &self,
-        transforms: &[deferred::Transform],
+        transforms: &[geometry_pass::TransformSSBO],
         present_index: usize,
         device: &VulkanDevice,
     ) -> Result<()> {
@@ -147,11 +154,34 @@ impl RenderScene {
                     std::mem::size_of_val(transforms) as u64,
                     vk::MemoryMapFlags::empty(),
                 )?
-                .cast::<deferred::Transform>();
+                .cast::<geometry_pass::TransformSSBO>();
 
             let mapped = std::slice::from_raw_parts_mut(mapped, transforms.len());
             mapped.copy_from_slice(transforms);
             device.unmap_memory(self.transforms[present_index].memory);
+        }
+        Ok(())
+    }
+
+    pub fn upload_directional_lights(
+        &self,
+        lights: &[lighting_pass::DirectionalLightsSSBO],
+        present_index: usize,
+        device: &VulkanDevice,
+    ) -> Result<()> {
+        unsafe {
+            let mapped = device
+                .map_memory(
+                    self.directional_lights[present_index].memory,
+                    0,
+                    std::mem::size_of_val(lights) as u64,
+                    vk::MemoryMapFlags::empty(),
+                )?
+                .cast::<lighting_pass::DirectionalLightsSSBO>();
+
+            let mapped = std::slice::from_raw_parts_mut(mapped, lights.len());
+            mapped.copy_from_slice(lights);
+            device.unmap_memory(self.directional_lights[present_index].memory);
         }
         Ok(())
     }

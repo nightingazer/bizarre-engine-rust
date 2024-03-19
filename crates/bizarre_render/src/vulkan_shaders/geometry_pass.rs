@@ -5,19 +5,17 @@ use crate::{
     vulkan_utils::shader::ShaderStage,
 };
 
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct Ubo {
-    pub view_projection: Mat4,
-}
+use super::shader_common;
+
+pub type Ubo = shader_common::ViewProjection;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Transform {
+pub struct TransformSSBO {
     pub transform: Mat4,
 }
 
-impl From<Mat4> for Transform {
+impl From<Mat4> for TransformSSBO {
     fn from(value: Mat4) -> Self {
         Self {
             transform: value,

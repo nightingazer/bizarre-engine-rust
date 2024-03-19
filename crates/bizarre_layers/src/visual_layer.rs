@@ -56,6 +56,10 @@ impl Layer for VisualLayer {
         app_builder.world.insert(MaterialLoader::default());
         app_builder.world.insert(render_scene);
 
+        let mut render_submitter = RenderSubmitter::new();
+        render_submitter.submit_ambient_light([0.1, 0.2, 0.4].into());
+        app_builder.world.insert(render_submitter);
+
         app_builder.world.register::<WindowComponent>();
         app_builder
             .world

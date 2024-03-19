@@ -2,12 +2,11 @@ use anyhow::Result;
 use ash::vk;
 
 use crate::{
-    vertex::{MeshVertex, PositionVertex, Vertex},
+    vertex::{MeshVertex, Vertex},
     vulkan::{
         device::VulkanDevice,
         pipeline::{VulkanPipelineRequirements, VulkanPipelineStage},
     },
-    vulkan_shaders::{ambient, deferred, directional, floor},
     vulkan_utils::shader::ShaderStage,
 };
 
@@ -16,14 +15,14 @@ use super::{
     Material, MaterialType,
 };
 
-pub fn default_lighted(
+pub fn default_plain(
     sample_count: vk::SampleCountFlags,
     render_pass: vk::RenderPass,
     device: &VulkanDevice,
 ) -> Result<Material> {
     let deferred_reqs = VulkanPipelineRequirements {
         attachment_count: 2,
-        bindings: &deferred::material_bindings(),
+        bindings: &[],
         features: PipelineFeatures {
             culling: CullMode::Back,
             flags: PipelineFeatureFlags::DEPTH_TEST | PipelineFeatureFlags::DEPTH_WRITE,
@@ -47,5 +46,5 @@ pub fn default_lighted(
         vertex_bindings: MeshVertex::binding_description(),
     };
 
-    Ok(Material::new(&deferred_reqs, device)?)
+    Material::new(&deferred_reqs, device)
 }

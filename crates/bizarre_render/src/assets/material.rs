@@ -1,3 +1,4 @@
+use core::slice::SlicePattern;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -5,9 +6,12 @@ use ash::vk;
 use bizarre_logger::core_critical;
 use specs::{hibitset::BitSetLike, BitSet};
 
-use crate::vulkan::{
-    device::VulkanDevice,
-    pipeline::{VulkanPipeline, VulkanPipelineRequirements},
+use crate::{
+    vulkan::{
+        device::VulkanDevice,
+        pipeline::{VulkanPipeline, VulkanPipelineRequirements},
+    },
+    vulkan_shaders::geometry_pass,
 };
 
 use self::binding::{binding_sets, BindObject, BindObjectSet, BindingSet, MaterialBindingRate};
@@ -35,16 +39,20 @@ pub struct Material {
 impl Material {
     pub fn new(requirements: &VulkanPipelineRequirements, device: &VulkanDevice) -> Result<Self> {
         let pipeline = VulkanPipeline::from_requirements(requirements, device)?;
-        let (per_pass, per_frame) = requirements.bindings.iter().cloned().fold(
-            (Vec::new(), Vec::new()),
-            |(mut pass, mut frame), curr| {
-                match curr.binding_rate {
-                    MaterialBindingRate::PerFrame => frame.push(curr),
-                    MaterialBindingRate::PerInstance => pass.push(curr),
-                }
-                (pass, frame)
-            },
-        );
+        let (per_pass, per_frame) = [
+            geometry_pass::material_bindings().as_slice(),
+            requirements.bindings.as_slice(),
+        ]
+        .concat()
+        .iter()
+        .cloned()
+        .fold((Vec::new(), Vec::new()), |(mut pass, mut frame), curr| {
+            match curr.binding_rate {
+                MaterialBindingRate::PerFrame => frame.push(curr),
+                MaterialBindingRate::PerInstance => pass.push(curr),
+            }
+            (pass, frame)
+        });
 
         let per_pass = binding_sets(&per_pass);
         let per_frame = binding_sets(&per_frame);

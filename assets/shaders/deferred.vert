@@ -13,10 +13,6 @@ layout(std140, set = 0, binding = 1) readonly buffer Transforms {
     mat4 transforms[];
 } transforms;
 
-// layout(push_constant, std430) uniform Constants {
-//     uint model_offset;
-// } constants;
-
 layout(location = 0) out vec4 v_color;
 layout(location = 1) out vec4 v_normal;
 

@@ -1,4 +1,4 @@
-pub mod ambient;
-pub mod deferred;
-pub mod directional;
 pub mod floor;
+pub mod geometry_pass;
+pub mod lighting_pass;
+pub mod shader_common;

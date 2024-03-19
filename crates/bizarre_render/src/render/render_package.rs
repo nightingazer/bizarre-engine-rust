@@ -2,6 +2,7 @@ use nalgebra_glm::{Mat4, Vec3};
 
 use crate::{
     material::MaterialInstance, material_loader::MaterialInstanceHandle, mesh_loader::MeshHandle,
+    render_math::DirectionalLight,
 };
 
 #[derive(Clone, Debug)]
@@ -26,6 +27,7 @@ pub struct RenderPackage {
     pub mesh_uploads: Vec<MeshUpload>,
     pub mesh_deletes: Vec<MeshDelete>,
     pub draw_submissions: Vec<DrawSubmission>,
+    pub directional_lights: Vec<DirectionalLight>,
 
     pub view_projection: Mat4,
     pub view: Mat4,
